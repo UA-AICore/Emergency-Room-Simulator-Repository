@@ -1,0 +1,228 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "ER Simulator Chat";
+}
+
+<div class="container-fluid h-100">
+    <div class="row h-100">
+        <!-- Chat Interface -->
+        <div class="col-md-8 d-flex flex-column">
+            <div class="card flex-grow-1 d-flex flex-column">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="fas fa-comments me-2"></i>
+                        ER Simulator AI Assistant
+                    </h4>
+                    <small>Session ID: <span id="sessionId"></span></small>
+                </div>
+                <div class="card-body flex-grow-1 d-flex flex-column p-0">
+                    <!-- Chat Messages -->
+                    <div id="chatMessages" class="flex-grow-1 p-3" style="overflow-y: auto; max-height: 500px;">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-robot fa-3x mb-3"></i>
+                            <p>Welcome to the ER Simulator AI Assistant!</p>
+                            <p>Ask me anything about emergency medicine, patient scenarios, or medical procedures.</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Chat Input -->
+                    <div class="border-top p-3">
+                        <div class="input-group">
+                            <input type="text" id="messageInput" class="form-control" 
+                                   placeholder="Type your message here..." 
+                                   maxlength="500">
+                            <button class="btn btn-primary" type="button" id="sendButton">
+                                <i class="fas fa-paper-plane"></i> Send
+                            </button>
+                        </div>
+                        <div class="form-text">
+                            <small class="text-muted">Press Enter to send, Shift+Enter for new line</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Logs Panel -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-list me-2"></i>
+                        Recent Chat Logs
+                    </h5>
+                </div>
+                <div class="card-body p-0" style="overflow-y: auto; max-height: 600px;">
+                    <div id="logsContainer" class="p-3">
+                        <div class="text-center text-muted">
+                            <i class="fas fa-history fa-2x mb-2"></i>
+                            <p>No logs yet. Start chatting to see conversation history!</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer">
+                    <button class="btn btn-outline-secondary btn-sm" id="refreshLogs">
+                        <i class="fas fa-sync-alt"></i> Refresh Logs
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-body text-center">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p>AI is thinking...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // Generate a unique session ID
+        const sessionId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        document.getElementById('sessionId').textContent = sessionId;
+        
+        const chatMessages = document.getElementById('chatMessages');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const logsContainer = document.getElementById('logsContainer');
+        const refreshLogsButton = document.getElementById('refreshLogs');
+        const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        
+        // Send message function
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+            
+            // Add user message to chat
+            addMessageToChat(message, 'user');
+            messageInput.value = '';
+            
+            // Show loading
+            loadingModal.show();
+            
+            try {
+                const response = await fetch('/api/chat/send', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        sessionId: sessionId
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                
+                const data = await response.json();
+                
+                // Add AI response to chat
+                addMessageToChat(data.response, 'ai');
+                
+                // Refresh logs
+                loadRecentLogs();
+                
+            } catch (error) {
+                console.error('Error:', error);
+                addMessageToChat('Sorry, I encountered an error. Please try again.', 'ai', true);
+            } finally {
+                loadingModal.hide();
+            }
+        }
+        
+        // Add message to chat display
+        function addMessageToChat(message, sender, isError = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `mb-3 ${sender === 'user' ? 'text-end' : 'text-start'}`;
+            
+            const messageContent = document.createElement('div');
+            messageContent.className = `d-inline-block p-3 rounded-3 ${
+                sender === 'user' 
+                    ? 'bg-primary text-white' 
+                    : isError 
+                        ? 'bg-danger text-white'
+                        : 'bg-light text-dark'
+            }`;
+            messageContent.style.maxWidth = '80%';
+            messageContent.innerHTML = message.replace(/\n/g, '<br>');
+            
+            const timestamp = document.createElement('small');
+            timestamp.className = 'text-muted d-block mt-1';
+            timestamp.textContent = new Date().toLocaleTimeString();
+            
+            messageDiv.appendChild(messageContent);
+            messageDiv.appendChild(timestamp);
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Load recent logs
+        async function loadRecentLogs() {
+            try {
+                const response = await fetch('/api/chat/logs?count=5');
+                const logs = await response.json();
+                
+                logsContainer.innerHTML = '';
+                
+                if (logs.length === 0) {
+                    logsContainer.innerHTML = `
+                        <div class="text-center text-muted">
+                            <i class="fas fa-history fa-2x mb-2"></i>
+                            <p>No logs yet. Start chatting to see conversation history!</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                logs.reverse().forEach(log => {
+                    const logDiv = document.createElement('div');
+                    logDiv.className = 'border-bottom pb-2 mb-2';
+                    logDiv.innerHTML = `
+                        <div class="d-flex justify-content-between align-items-start mb-1">
+                            <small class="text-muted">${new Date(log.timestamp).toLocaleString()}</small>
+                            <small class="text-muted">${Math.round(log.responseTime)}ms</small>
+                        </div>
+                        <div class="mb-1">
+                            <strong>User:</strong> ${log.userMessage.substring(0, 50)}${log.userMessage.length > 50 ? '...' : ''}
+                        </div>
+                        <div>
+                            <strong>AI:</strong> ${log.aiResponse.substring(0, 50)}${log.aiResponse.length > 50 ? '...' : ''}
+                        </div>
+                    `;
+                    logsContainer.appendChild(logDiv);
+                });
+                
+            } catch (error) {
+                console.error('Error loading logs:', error);
+            }
+        }
+        
+        // Event listeners
+        sendButton.addEventListener('click', sendMessage);
+        
+        messageInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+        
+        refreshLogsButton.addEventListener('click', loadRecentLogs);
+        
+        // Load initial logs
+        loadRecentLogs();
+    </script>
+}
