@@ -1,24 +1,44 @@
-# Test script to verify Ollama is working
-echo "Testing Ollama connection..."
+#!/bin/bash
 
-# Test if Ollama is running
+echo "🏥 ER Simulator - Ollama Connection Test"
+echo "========================================"
+echo ""
+
+# Check if Ollama is running
+echo "Checking if Ollama is running on http://127.0.0.1:11434..."
 if curl -s http://127.0.0.1:11434/api/tags > /dev/null; then
     echo "✅ Ollama is running!"
+    echo ""
     
-    # Test a simple question
-    echo "Asking Ollama: 'What is a heart attack?'"
+    # Test a medical question
+    echo "Testing with a medical question: 'What is CPR?'"
+    echo ""
     
-    curl -X POST http://127.0.0.1:11434/api/generate \
+    response=$(curl -s -X POST http://127.0.0.1:11434/api/generate \
       -H "Content-Type: application/json" \
       -d '{
         "model": "phi3:mini",
-        "prompt": "What is a heart attack?",
+        "prompt": "What is CPR?",
         "stream": false
-      }' | jq -r '.response'
+      }')
     
+    echo "AI Response:"
+    echo "$response" | jq -r '.response'
     echo ""
-    echo "🎉 If you see a medical response above, Ollama is working!"
+    echo "🎉 Ollama is working! Your .NET app can now connect to it."
+    echo ""
+    echo "Next steps:"
+    echo "1. Run your .NET app: dotnet run"
+    echo "2. Open browser to: http://localhost:5120"
+    echo "3. Start chatting with the AI!"
+    
 else
     echo "❌ Ollama is not running."
-    echo "   Your teammate needs to run: ollama serve"
+    echo ""
+    echo "Your teammate needs to start Ollama:"
+    echo "1. Open WSL Ubuntu"
+    echo "2. Run: ollama serve"
+    echo "3. Wait for 'Listening on 127.0.0.1:11434' message"
+    echo ""
+    echo "Then run this test again."
 fi

@@ -34,3 +34,4 @@
 /Users/hginman/ER Simulator Web App/ERSimulatorApp/obj/Debug/net8.0/ERSimulatorApp.pdb
 /Users/hginman/ER Simulator Web App/ERSimulatorApp/obj/Debug/net8.0/ERSimulatorApp.genruntimeconfig.cache
 /Users/hginman/ER Simulator Web App/ERSimulatorApp/obj/Debug/net8.0/ref/ERSimulatorApp.dll
+/Users/hginman/ER Simulator Web App/ERSimulatorApp/obj/Debug/net8.0/ERSimulatorApp.sourcelink.json
