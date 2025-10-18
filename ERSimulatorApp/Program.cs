@@ -16,6 +16,7 @@ builder.Services.AddHttpClient<OllamaService>(client =>
 });
 builder.Services.AddSingleton<ILLMService, OllamaService>();
 builder.Services.AddSingleton<ChatLogService>();
+builder.Services.AddSingleton<ICustomGPTService, CustomGPTService>();
 
 // Add CORS for development
 builder.Services.AddCors(options =>
