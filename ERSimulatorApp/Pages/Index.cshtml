@@ -4,67 +4,101 @@
     ViewData["Title"] = "ER Simulator Chat";
 }
 
-<div class="container-fluid h-100">
-    <div class="row h-100">
+<style>
+    /* Add custom CSS import */
+</style>
+<link rel="stylesheet" href="~/css/custom.css" />
+
+<div class="container-fluid h-100 py-4">
+    <div class="row h-100 g-4">
         <!-- Chat Interface -->
-        <div class="col-md-8 d-flex flex-column">
-            <div class="card flex-grow-1 d-flex flex-column">
-                <div class="card-header bg-primary text-white">
-                    <h4 class="mb-0">
-                        <i class="fas fa-comments me-2"></i>
+        <div class="col-lg-8 d-flex flex-column">
+            <div class="chat-container flex-grow-1 d-flex flex-column">
+                <!-- Chat Header -->
+                <div class="chat-header">
+                    <h4 class="mb-2">
+                        <i class="fas fa-heartbeat me-2"></i>
                         ER Simulator AI Assistant
+                        <span class="badge bg-light text-dark ms-2" id="statusBadge">
+                            <i class="fas fa-circle text-success"></i> Online
+                        </span>
                     </h4>
-                    <small>Session ID: <span id="sessionId"></span></small>
+                    <small>
+                        <i class="fas fa-id-card me-1"></i>
+                        Session: <span id="sessionId" class="text-white-50"></span>
+                    </small>
                 </div>
-                <div class="card-body flex-grow-1 d-flex flex-column p-0">
-                    <!-- Chat Messages -->
-                    <div id="chatMessages" class="flex-grow-1 p-3" style="overflow-y: auto; max-height: 500px;">
-                        <div class="text-center text-muted">
-                            <i class="fas fa-robot fa-3x mb-3"></i>
-                            <p>Welcome to the ER Simulator AI Assistant!</p>
-                            <p>Ask me anything about emergency medicine, patient scenarios, or medical procedures.</p>
+                
+                <!-- Chat Messages -->
+                <div id="chatMessages" class="chat-messages">
+                    <div class="welcome-screen">
+                        <div class="welcome-icon floating">
+                            <i class="fas fa-hospital"></i>
                         </div>
+                        <h3 class="mb-3" style="color: #1e88e5;">
+                            <i class="fas fa-robot me-2"></i>
+                            Welcome to ER Simulator
+                        </h3>
+                        <p class="mb-2">
+                            <i class="fas fa-stethoscope me-2 text-primary"></i>
+                            <strong>AI-Powered Medical Assistant</strong>
+                        </p>
+                        <p class="mb-2">
+                            Ask me about emergency medicine, trauma protocols, patient scenarios, 
+                            or medical procedures.
+                        </p>
+                        <p class="text-muted small mt-3">
+                            <i class="fas fa-info-circle me-1"></i>
+                            Powered by MedGemma 4B with RAG-enhanced medical knowledge
+                        </p>
                     </div>
-                    
-                    <!-- Chat Input -->
-                    <div class="border-top p-3">
-                        <div class="input-group">
-                            <input type="text" id="messageInput" class="form-control" 
-                                   placeholder="Type your message here..." 
-                                   maxlength="500">
-                            <button class="btn btn-primary" type="button" id="sendButton">
-                                <i class="fas fa-paper-plane"></i> Send
-                            </button>
-                        </div>
-                        <div class="form-text">
-                            <small class="text-muted">Press Enter to send, Shift+Enter for new line</small>
-                        </div>
+                </div>
+                
+                <!-- Chat Input -->
+                <div class="chat-input-container">
+                    <div class="input-group">
+                        <input type="text" id="messageInput" class="form-control" 
+                               placeholder="Ask about emergency medicine, trauma care, or medical protocols..." 
+                               maxlength="500">
+                        <button class="btn btn-send" type="button" id="sendButton">
+                            <i class="fas fa-paper-plane me-2"></i>Send
+                        </button>
+                    </div>
+                    <div class="mt-2 d-flex justify-content-between align-items-center">
+                        <small class="text-muted">
+                            <i class="fas fa-keyboard me-1"></i>
+                            Press Enter to send • Shift+Enter for new line
+                        </small>
+                        <small class="text-muted">
+                            <i class="fas fa-book-medical me-1"></i>
+                            RAG-powered with 9 trauma documents
+                        </small>
                     </div>
                 </div>
             </div>
         </div>
         
         <!-- Logs Panel -->
-        <div class="col-md-4">
-            <div class="card h-100">
-                <div class="card-header bg-secondary text-white">
+        <div class="col-lg-4">
+            <div class="logs-panel h-100 d-flex flex-column">
+                <!-- Logs Header -->
+                <div class="logs-header">
                     <h5 class="mb-0">
-                        <i class="fas fa-list me-2"></i>
-                        Recent Chat Logs
+                        <i class="fas fa-clipboard-list me-2"></i>
+                        Recent Activity
+                        <button class="btn btn-sm btn-light float-end" id="refreshLogs">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
                     </h5>
                 </div>
-                <div class="card-body p-0" style="overflow-y: auto; max-height: 600px;">
-                    <div id="logsContainer" class="p-3">
-                        <div class="text-center text-muted">
-                            <i class="fas fa-history fa-2x mb-2"></i>
-                            <p>No logs yet. Start chatting to see conversation history!</p>
-                        </div>
+                
+                <!-- Logs Body -->
+                <div class="logs-body" id="logsContainer">
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-history fa-3x mb-3" style="color: #94a3b8;"></i>
+                        <p>No activity yet</p>
+                        <p class="small">Start chatting to see conversation history!</p>
                     </div>
-                </div>
-                <div class="card-footer">
-                    <button class="btn btn-outline-secondary btn-sm" id="refreshLogs">
-                        <i class="fas fa-sync-alt"></i> Refresh Logs
-                    </button>
                 </div>
             </div>
         </div>
@@ -144,26 +178,41 @@
         
         // Add message to chat display
         function addMessageToChat(message, sender, isError = false) {
+            // Remove welcome screen if it exists
+            const welcomeScreen = chatMessages.querySelector('.welcome-screen');
+            if (welcomeScreen) {
+                welcomeScreen.remove();
+            }
+            
             const messageDiv = document.createElement('div');
-            messageDiv.className = `mb-3 ${sender === 'user' ? 'text-end' : 'text-start'}`;
+            messageDiv.className = `mb-3 ${sender === 'user' ? 'd-flex justify-content-end' : 'd-flex justify-content-start'}`;
             
             const messageContent = document.createElement('div');
-            messageContent.className = `d-inline-block p-3 rounded-3 ${
-                sender === 'user' 
-                    ? 'bg-primary text-white' 
-                    : isError 
-                        ? 'bg-danger text-white'
-                        : 'bg-light text-dark'
-            }`;
-            messageContent.style.maxWidth = '80%';
-            messageContent.innerHTML = message.replace(/\n/g, '<br>');
+            messageContent.className = sender === 'user' 
+                ? 'message-user' 
+                : isError 
+                    ? 'message-error'
+                    : 'message-ai';
+            messageContent.style.maxWidth = '75%';
             
-            const timestamp = document.createElement('small');
-            timestamp.className = 'text-muted d-block mt-1';
-            timestamp.textContent = new Date().toLocaleTimeString();
+            // Add icon based on sender
+            let icon = '';
+            if (sender === 'user') {
+                icon = '<i class="fas fa-user-circle me-2"></i>';
+            } else if (isError) {
+                icon = '<i class="fas fa-exclamation-circle me-2"></i>';
+            } else {
+                icon = '<i class="fas fa-robot me-2"></i>';
+            }
+            
+            messageContent.innerHTML = `${icon}${message.replace(/\n/g, '<br>')}`;
+            
+            const messageInfo = document.createElement('div');
+            messageInfo.className = 'message-info';
+            messageInfo.innerHTML = `<i class="fas fa-clock me-1"></i>${new Date().toLocaleTimeString()}`;
             
             messageDiv.appendChild(messageContent);
-            messageDiv.appendChild(timestamp);
+            messageDiv.appendChild(messageInfo);
             
             chatMessages.appendChild(messageDiv);
             chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -189,17 +238,36 @@
                 
                 logs.reverse().forEach(log => {
                     const logDiv = document.createElement('div');
-                    logDiv.className = 'border-bottom pb-2 mb-2';
+                    logDiv.className = 'log-entry';
+                    
+                    // Parse TimeSpan format (HH:MM:SS.milliseconds) to milliseconds
+                    let responseTimeMs = 0;
+                    if (typeof log.responseTime === 'string') {
+                        const parts = log.responseTime.split(':');
+                        if (parts.length === 3) {
+                            const seconds = parseFloat(parts[2]);
+                            responseTimeMs = (parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + seconds) * 1000;
+                        } else {
+                            responseTimeMs = parseFloat(log.responseTime) || 0;
+                        }
+                    } else {
+                        responseTimeMs = log.responseTime || 0;
+                    }
+                    
                     logDiv.innerHTML = `
-                        <div class="d-flex justify-content-between align-items-start mb-1">
-                            <small class="text-muted">${new Date(log.timestamp).toLocaleString()}</small>
-                            <small class="text-muted">${Math.round(log.responseTime)}ms</small>
+                        <div class="log-meta">
+                            <span><i class="fas fa-clock me-1"></i>${new Date(log.timestamp).toLocaleString()}</span>
+                            <span class="log-response-time">${Math.round(responseTimeMs)}ms</span>
                         </div>
-                        <div class="mb-1">
-                            <strong>User:</strong> ${log.userMessage.substring(0, 50)}${log.userMessage.length > 50 ? '...' : ''}
+                        <div class="mb-2">
+                            <i class="fas fa-user text-primary me-1"></i>
+                            <strong>User:</strong><br>
+                            <span class="text-muted">${log.userMessage.substring(0, 60)}${log.userMessage.length > 60 ? '...' : ''}</span>
                         </div>
                         <div>
-                            <strong>AI:</strong> ${log.aiResponse.substring(0, 50)}${log.aiResponse.length > 50 ? '...' : ''}
+                            <i class="fas fa-robot text-success me-1"></i>
+                            <strong>AI:</strong><br>
+                            <span class="text-muted">${log.aiResponse.substring(0, 60)}${log.aiResponse.length > 60 ? '...' : ''}</span>
                         </div>
                     `;
                     logsContainer.appendChild(logDiv);

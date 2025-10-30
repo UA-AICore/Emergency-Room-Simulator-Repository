@@ -20,81 +20,104 @@ namespace ERSimulatorApp.Services
         private readonly object _lockObject = new object();
         private List<CustomGPTCharacter> _characters;
         private int _nextId = 1;
+        private readonly ILogger<CustomGPTService>? _logger;
 
-        public CustomGPTService()
+        public CustomGPTService(ILogger<CustomGPTService>? logger = null)
         {
             _charactersFilePath = Path.Combine(Directory.GetCurrentDirectory(), "custom_gpt_characters.json");
+            _logger = logger;
             _characters = LoadCharacters();
         }
 
         public async Task<List<CustomGPTCharacter>> GetAllCharactersAsync()
         {
-            return await Task.FromResult(_characters.Where(c => c.IsActive).ToList());
+            return await Task.Run(() =>
+            {
+                lock (_lockObject)
+                {
+                    return _characters.Where(c => c.IsActive).ToList();
+                }
+            });
         }
 
         public async Task<CustomGPTCharacter?> GetCharacterByIdAsync(int id)
         {
-            return await Task.FromResult(_characters.FirstOrDefault(c => c.Id == id && c.IsActive));
+            return await Task.Run(() =>
+            {
+                lock (_lockObject)
+                {
+                    return _characters.FirstOrDefault(c => c.Id == id && c.IsActive);
+                }
+            });
         }
 
         public async Task<CustomGPTCharacter> CreateCharacterAsync(CustomGPTRequest request)
         {
-            var character = new CustomGPTCharacter
+            return await Task.Run(() =>
             {
-                Id = _nextId++,
-                Name = request.Name,
-                Description = request.Description,
-                Role = request.Role,
-                GPTEndpoint = request.GPTEndpoint,
-                ApiKey = request.ApiKey,
-                CreatedAt = DateTime.UtcNow,
-                LastUpdated = DateTime.UtcNow,
-                IsActive = true
-            };
+                var character = new CustomGPTCharacter
+                {
+                    Id = _nextId++,
+                    Name = request.Name,
+                    Description = request.Description,
+                    Role = request.Role,
+                    GPTEndpoint = request.GPTEndpoint,
+                    ApiKey = request.ApiKey,
+                    CreatedAt = DateTime.UtcNow,
+                    LastUpdated = DateTime.UtcNow,
+                    IsActive = true
+                };
 
-            lock (_lockObject)
-            {
-                _characters.Add(character);
-                SaveCharacters();
-            }
+                lock (_lockObject)
+                {
+                    _characters.Add(character);
+                    SaveCharacters();
+                }
 
-            return await Task.FromResult(character);
+                return character;
+            });
         }
 
         public async Task<CustomGPTCharacter?> UpdateCharacterAsync(int id, CustomGPTRequest request)
         {
-            var character = _characters.FirstOrDefault(c => c.Id == id);
-            if (character == null) return null;
-
-            character.Name = request.Name;
-            character.Description = request.Description;
-            character.Role = request.Role;
-            character.GPTEndpoint = request.GPTEndpoint;
-            character.ApiKey = request.ApiKey;
-            character.LastUpdated = DateTime.UtcNow;
-
-            lock (_lockObject)
+            return await Task.Run(() =>
             {
-                SaveCharacters();
-            }
+                lock (_lockObject)
+                {
+                    var character = _characters.FirstOrDefault(c => c.Id == id);
+                    if (character == null) return null;
 
-            return await Task.FromResult(character);
+                    character.Name = request.Name;
+                    character.Description = request.Description;
+                    character.Role = request.Role;
+                    character.GPTEndpoint = request.GPTEndpoint;
+                    character.ApiKey = request.ApiKey;
+                    character.LastUpdated = DateTime.UtcNow;
+
+                    SaveCharacters();
+
+                    return character;
+                }
+            });
         }
 
         public async Task<bool> DeleteCharacterAsync(int id)
         {
-            var character = _characters.FirstOrDefault(c => c.Id == id);
-            if (character == null) return false;
-
-            character.IsActive = false;
-            character.LastUpdated = DateTime.UtcNow;
-
-            lock (_lockObject)
+            return await Task.Run(() =>
             {
-                SaveCharacters();
-            }
+                lock (_lockObject)
+                {
+                    var character = _characters.FirstOrDefault(c => c.Id == id);
+                    if (character == null) return false;
 
-            return await Task.FromResult(true);
+                    character.IsActive = false;
+                    character.LastUpdated = DateTime.UtcNow;
+
+                    SaveCharacters();
+
+                    return true;
+                }
+            });
         }
 
         public async Task<string> ChatWithCharacterAsync(int characterId, string message)
@@ -133,7 +156,7 @@ namespace ERSimulatorApp.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error loading custom GPT characters: {ex.Message}");
+                _logger?.LogError(ex, "Error loading custom GPT characters");
             }
 
             return CreateDefaultCharacters();
@@ -148,7 +171,7 @@ namespace ERSimulatorApp.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error saving custom GPT characters: {ex.Message}");
+                _logger?.LogError(ex, "Error saving custom GPT characters");
             }
         }
 

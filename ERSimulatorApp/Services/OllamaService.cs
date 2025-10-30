@@ -1,6 +1,8 @@
 using ERSimulatorApp.Models;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace ERSimulatorApp.Services
 {
@@ -14,12 +16,14 @@ namespace ERSimulatorApp.Services
         private readonly HttpClient _httpClient;
         private readonly ILogger<OllamaService> _logger;
         private readonly string _ollamaEndpoint;
+        private readonly string _model;
 
         public OllamaService(HttpClient httpClient, ILogger<OllamaService> logger, IConfiguration configuration)
         {
             _httpClient = httpClient;
             _logger = logger;
             _ollamaEndpoint = configuration["Ollama:Endpoint"] ?? "http://127.0.0.1:11434/api/generate";
+            _model = configuration["Ollama:Model"] ?? "phi3:mini";
         }
 
         public async Task<string> GetResponseAsync(string prompt)
@@ -30,7 +34,7 @@ namespace ERSimulatorApp.Services
 
                 var requestBody = new
                 {
-                    model = "phi3:mini",
+                    model = _model,
                     prompt = prompt,
                     stream = false
                 };
@@ -69,8 +73,13 @@ namespace ERSimulatorApp.Services
 
     public class OllamaResponse
     {
+        [JsonPropertyName("model")]
         public string Model { get; set; } = string.Empty;
+        
+        [JsonPropertyName("response")]
         public string Response { get; set; } = string.Empty;
+        
+        [JsonPropertyName("done")]
         public bool Done { get; set; }
     }
 
@@ -105,38 +114,86 @@ namespace ERSimulatorApp.Services
                 if (!File.Exists(_logFilePath))
                     return new List<ChatLogEntry>();
 
-                var lines = File.ReadAllLines(_logFilePath);
+                var fileContent = File.ReadAllText(_logFilePath);
                 var entries = new List<ChatLogEntry>();
                 
-                // Simple parsing - in a real app, you'd want more robust parsing
-                for (int i = 0; i < lines.Length - 4; i += 5)
+                // Split by entry separator "---"
+                var entryBlocks = fileContent.Split(new[] { "---\n", "---\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+                
+                foreach (var block in entryBlocks)
                 {
-                    if (lines[i].StartsWith("[") && lines[i].Contains("Session:"))
+                    try
                     {
-                        try
+                        var lines = block.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (lines.Length < 4) continue;
+                        
+                        // First line should be timestamp and session
+                        if (!lines[0].StartsWith("[") || !lines[0].Contains("Session:")) continue;
+                        
+                        // Extract timestamp
+                        var timestampMatch = Regex.Match(lines[0], @"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]");
+                        if (!timestampMatch.Success) continue;
+                        var timestamp = DateTime.ParseExact(timestampMatch.Groups[1].Value, "yyyy-MM-dd HH:mm:ss", null);
+                        
+                        // Extract session ID
+                        var sessionMatch = Regex.Match(lines[0], @"Session: (.+)");
+                        if (!sessionMatch.Success) continue;
+                        var sessionId = sessionMatch.Groups[1].Value;
+                        
+                        // Find User: and AI: lines
+                        string userMessage = "";
+                        string aiResponse = "";
+                        string responseTimeStr = "";
+                        
+                        for (int i = 1; i < lines.Length; i++)
                         {
-                            var timestampStr = lines[i].Substring(1, 19);
-                            var timestamp = DateTime.ParseExact(timestampStr, "yyyy-MM-dd HH:mm:ss", null);
-                            
-                            var sessionId = lines[i].Split("Session: ")[1];
-                            var userMessage = lines[i + 1].Replace("User: ", "");
-                            var aiResponse = lines[i + 2].Replace("AI: ", "");
-                            var responseTimeStr = lines[i + 3].Replace("Response Time: ", "").Replace("ms", "");
-                            
-                            entries.Add(new ChatLogEntry
+                            if (lines[i].StartsWith("User: "))
                             {
-                                Timestamp = timestamp,
-                                SessionId = sessionId,
-                                UserMessage = userMessage,
-                                AIResponse = aiResponse,
-                                ResponseTime = TimeSpan.FromMilliseconds(double.Parse(responseTimeStr))
-                            });
+                                userMessage = lines[i].Substring(6);
+                            }
+                            else if (lines[i].StartsWith("AI: "))
+                            {
+                                // AI response can span multiple lines until "Response Time:"
+                                var aiLines = new System.Collections.Generic.List<string>();
+                                aiLines.Add(lines[i].Substring(4));
+                                
+                                // Continue adding lines until we hit "Response Time:"
+                                i++;
+                                while (i < lines.Length && !lines[i].StartsWith("Response Time: "))
+                                {
+                                    if (!string.IsNullOrWhiteSpace(lines[i]))
+                                        aiLines.Add(lines[i]);
+                                    i++;
+                                }
+                                aiResponse = string.Join("\n", aiLines);
+                                
+                                // Get response time
+                                if (i < lines.Length && lines[i].StartsWith("Response Time: "))
+                                {
+                                    responseTimeStr = lines[i].Substring(15).Replace("ms", "").Trim();
+                                }
+                                break;
+                            }
                         }
-                        catch
+                        
+                        if (!double.TryParse(responseTimeStr, out var responseTimeMs))
                         {
-                            // Skip malformed entries
-                            continue;
+                            responseTimeMs = 0;
                         }
+                        
+                        entries.Add(new ChatLogEntry
+                        {
+                            Timestamp = timestamp,
+                            SessionId = sessionId,
+                            UserMessage = userMessage,
+                            AIResponse = aiResponse,
+                            ResponseTime = TimeSpan.FromMilliseconds(responseTimeMs)
+                        });
+                    }
+                    catch
+                    {
+                        // Skip malformed entries
+                        continue;
                     }
                 }
                 

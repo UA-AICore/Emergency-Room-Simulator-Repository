@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "Hash": "naRRWS28S5QZXWdkIhmhLEK9TL7YrQ4N14E2iAfvmr4=",
+  "Hash": "UOLZGEs4Nz5wz3CDMLoSbQPju6r3UjDmJ7tTr2pfPXk=",
   "Source": "ERSimulatorApp",
   "BasePath": "_content/ERSimulatorApp",
   "Mode": "Default",
@@ -53,6 +53,25 @@
       "CopyToOutputDirectory": "Never",
       "CopyToPublishDirectory": "PreserveNewest",
       "OriginalItemSpec": "/Users/hginman/ER Simulator Web App/ERSimulatorApp/obj/Debug/net8.0/scopedcss/projectbundle/ERSimulatorApp.bundle.scp.css"
+    },
+    {
+      "Identity": "/Users/hginman/ER Simulator Web App/ERSimulatorApp/wwwroot/css/custom.css",
+      "SourceId": "ERSimulatorApp",
+      "SourceType": "Discovered",
+      "ContentRoot": "/Users/hginman/ER Simulator Web App/ERSimulatorApp/wwwroot/",
+      "BasePath": "_content/ERSimulatorApp",
+      "RelativePath": "css/custom.css",
+      "AssetKind": "All",
+      "AssetMode": "All",
+      "AssetRole": "Primary",
+      "AssetMergeBehavior": "PreferTarget",
+      "AssetMergeSource": "",
+      "RelatedAsset": "",
+      "AssetTraitName": "",
+      "AssetTraitValue": "",
+      "CopyToOutputDirectory": "Never",
+      "CopyToPublishDirectory": "PreserveNewest",
+      "OriginalItemSpec": "wwwroot/css/custom.css"
     },
     {
       "Identity": "/Users/hginman/ER Simulator Web App/ERSimulatorApp/wwwroot/css/site.css",

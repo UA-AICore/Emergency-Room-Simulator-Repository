@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ERSimulatorApp")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+671fc1ffd142582372ce27bb6881e2897d464545")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+265ee6b733c9f253bcf482ccfc923afc0438778f")]
 [assembly: System.Reflection.AssemblyProductAttribute("ERSimulatorApp")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ERSimulatorApp")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

@@ -5,6 +5,10 @@
       "PackagePath": "staticwebassets/ERSimulatorApp.bundle.scp.css"
     },
     {
+      "Id": "/Users/hginman/ER Simulator Web App/ERSimulatorApp/wwwroot/css/custom.css",
+      "PackagePath": "staticwebassets/css/custom.css"
+    },
+    {
       "Id": "/Users/hginman/ER Simulator Web App/ERSimulatorApp/wwwroot/css/site.css",
       "PackagePath": "staticwebassets/css/site.css"
     },
