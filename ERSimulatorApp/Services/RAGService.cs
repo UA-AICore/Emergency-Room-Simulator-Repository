@@ -1,3 +1,6 @@
+using ERSimulatorApp.Models;
+using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -21,7 +24,9 @@ namespace ERSimulatorApp.Services
             _model = configuration["Ollama:Model"] ?? "alibayram/medgemma:4b";
         }
 
-        public async Task<string> GetResponseAsync(string prompt)
+        private const string FallbackMessage = "I’m sorry, my reference services are offline right now. Please start the local RAG/Ollama servers and ask again.";
+
+        public async Task<LLMResponse> GetResponseAsync(string prompt)
         {
             try
             {
@@ -48,20 +53,39 @@ namespace ERSimulatorApp.Services
                         if (ragData != null && !string.IsNullOrEmpty(ragData.Answer))
                         {
                             _logger.LogInformation($"RAG response received with {ragData.Sources?.Count ?? 0} sources");
-                            
-                            // Format response with sources
+
+                            var references = ragData.Sources?
+                                .Select(source =>
+                                {
+                                    var fileNameOnly = Path.GetFileName(source.Filename);
+                                    var title = Path.GetFileNameWithoutExtension(fileNameOnly);
+                                    return new SourceReference
+                                    {
+                                        Filename = source.Filename,
+                                        Title = string.IsNullOrWhiteSpace(title) ? fileNameOnly : title,
+                                        Preview = source.Preview,
+                                        Similarity = source.Similarity
+                                    };
+                                })
+                                .ToList() ?? new List<SourceReference>();
+
+                            // Format response with sources inline for backward compatibility
                             var formattedResponse = ragData.Answer;
-                            if (ragData.Sources != null && ragData.Sources.Any())
+                            if (references.Count > 0)
                             {
                                 formattedResponse += "\n\n📚 Sources:\n";
-                                foreach (var source in ragData.Sources)
+                                foreach (var reference in references)
                                 {
-                                    var filename = source.Filename.Split('/').LastOrDefault() ?? source.Filename;
-                                    formattedResponse += $"• {filename} (match: {source.Similarity:P0})\n";
+                                    formattedResponse += $"• {reference.Title} (match: {reference.Similarity:P0})\n";
                                 }
                             }
-                            
-                            return formattedResponse;
+
+                            return new LLMResponse
+                            {
+                                Response = formattedResponse,
+                                Sources = references,
+                                IsFallback = false
+                            };
                         }
                     }
                 }
@@ -102,12 +126,21 @@ namespace ERSimulatorApp.Services
                 }
 
                 _logger.LogInformation($"Ollama response received: {ollamaResponse.Response.Substring(0, Math.Min(50, ollamaResponse.Response.Length))}...");
-                return ollamaResponse.Response;
+                return new LLMResponse
+                {
+                    Response = ollamaResponse.Response,
+                    IsFallback = false
+                };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error calling RAG/Ollama API");
-                throw;
+                return new LLMResponse
+                {
+                    Response = FallbackMessage,
+                    Sources = new List<SourceReference>(),
+                    IsFallback = true
+                };
             }
         }
     }

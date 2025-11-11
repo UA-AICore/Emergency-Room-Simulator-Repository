@@ -1,3 +1,5 @@
+using ERSimulatorApp.Models;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 
@@ -22,7 +24,7 @@ namespace ERSimulatorApp.Services
             _configuration = configuration;
         }
 
-        public async Task<string> GetResponseAsync(string prompt)
+        public async Task<LLMResponse> GetResponseAsync(string prompt)
         {
             try
             {
@@ -39,11 +41,18 @@ namespace ERSimulatorApp.Services
                 _logger.LogInformation($"Getting medical response from RAG for: {prompt.Substring(0, Math.Min(50, prompt.Length))}...");
                 var medicalResponse = await _ragService.GetResponseAsync(prompt);
 
+                if (medicalResponse.IsFallback)
+                {
+                    _logger.LogWarning("Returning fallback message without personality layer because upstream services are offline.");
+                    return medicalResponse;
+                }
+
                 // Add personality layer using Character Gateway
                 _logger.LogInformation("Adding medical instructor personality to response");
-                var finalResponse = await _characterGateway.AddPersonalityAsync(medicalResponse, prompt);
+                var finalResponse = await _characterGateway.AddPersonalityAsync(medicalResponse.Response, prompt);
 
-                return finalResponse;
+                medicalResponse.Response = finalResponse;
+                return medicalResponse;
             }
             catch (Exception ex)
             {
@@ -55,7 +64,12 @@ namespace ERSimulatorApp.Services
                 }
                 catch
                 {
-                    throw;
+                    return new LLMResponse
+                    {
+                        Response = "I’m sorry, I can’t answer right now because the upstream services are unavailable.",
+                        Sources = new List<SourceReference>(),
+                        IsFallback = true
+                    };
                 }
             }
         }

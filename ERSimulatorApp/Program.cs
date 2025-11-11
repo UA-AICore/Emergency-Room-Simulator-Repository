@@ -38,6 +38,8 @@ builder.Services.AddSingleton<ICustomGPTService>(sp =>
     return new CustomGPTService(logger);
 });
 
+builder.Services.AddHttpClient<QuizService>();
+
 // Add CORS for development
 builder.Services.AddCors(options =>
 {

@@ -231,6 +231,177 @@ body {
     animation: slideIn 0.3s ease-out 0.1s both;
 }
 
+.sources-panel {
+    background: white;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: var(--shadow-strong);
+}
+
+.quiz-launch .btn-quiz {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 30px;
+    padding: 0.5rem 1.25rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.quiz-launch .btn-quiz:hover {
+    background: white;
+    color: var(--primary-medical);
+    transform: translateY(-1px);
+}
+
+.quiz-container {
+    background: white;
+    border-radius: 16px;
+    box-shadow: var(--shadow-strong);
+    padding: 1.5rem;
+    border: 1px solid #e2e8f0;
+}
+
+.quiz-header h5 {
+    margin-bottom: 0;
+    color: var(--primary-medical);
+    font-weight: 600;
+}
+
+.quiz-body {
+    margin-top: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.quiz-question-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    transition: all 0.3s ease;
+}
+
+.quiz-question-card.quiz-correct {
+    border-color: #4ade80;
+    background: #f0fdf4;
+}
+
+.quiz-question-card.quiz-incorrect {
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+
+.quiz-question-title {
+    color: var(--primary-medical);
+    font-weight: 600;
+}
+
+.quiz-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.quiz-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s ease;
+}
+
+.quiz-option:hover {
+    border-color: var(--primary-medical);
+    background: #eef6ff;
+}
+
+.quiz-option input[type="radio"] {
+    accent-color: var(--primary-medical);
+}
+
+.quiz-footer {
+    margin-top: 1.5rem;
+    border-top: 1px solid #e2e8f0;
+    padding-top: 1rem;
+}
+
+.quiz-feedback {
+    border-radius: 12px;
+}
+
+.quiz-feedback-answer {
+    font-weight: 600;
+    color: var(--primary-dark);
+}
+
+.sources-header {
+    background: linear-gradient(135deg, var(--primary-medical) 0%, var(--primary-dark) 100%);
+    color: white;
+    padding: 1.5rem;
+    border-bottom: 3px solid rgba(255, 255, 255, 0.18);
+}
+
+.sources-body {
+    padding: 1rem;
+    max-height: 550px;
+    overflow-y: auto;
+}
+
+.source-entry {
+    background: #f8fbff;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+    border-left: 4px solid var(--primary-medical);
+    box-shadow: var(--shadow-soft);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.source-entry:hover {
+    transform: translateX(4px);
+    box-shadow: var(--shadow-medium);
+}
+
+.source-link {
+    font-weight: 600;
+    color: var(--primary-medical);
+    text-decoration: none;
+}
+
+.source-link:hover {
+    text-decoration: underline;
+}
+
+.source-similarity {
+    background: rgba(30, 136, 229, 0.12);
+    color: var(--primary-dark);
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 0.75rem;
+}
+
+.source-preview {
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+    color: #475569;
+}
+
+.source-open-hint {
+    font-size: 0.75rem;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.source-open-hint i {
+    font-size: 0.75rem;
+}
+
 .logs-header {
     background: linear-gradient(135deg, #64748b 0%, #475569 100%);
     color: white;
@@ -347,6 +518,11 @@ body {
 .floating {
     animation: float 3s ease-in-out infinite;
 }
+
+
+
+
+
 
 
 

@@ -27,6 +27,12 @@
                         <i class="fas fa-id-card me-1"></i>
                         Session: <span id="sessionId" class="text-white-50"></span>
                     </small>
+                    <div class="quiz-launch mt-3">
+                        <button class="btn btn-quiz" type="button" id="openQuizButton">
+                            <i class="fas fa-question-circle me-2"></i>
+                            Generate Pop Quiz
+                        </button>
+                    </div>
                 </div>
                 
                 <!-- Chat Messages -->
@@ -76,28 +82,52 @@
                     </div>
                 </div>
             </div>
-        </div>
-        
-        <!-- Logs Panel -->
-        <div class="col-lg-4">
-            <div class="logs-panel h-100 d-flex flex-column">
-                <!-- Logs Header -->
-                <div class="logs-header">
-                    <h5 class="mb-0">
-                        <i class="fas fa-clipboard-list me-2"></i>
-                        Recent Activity
-                        <button class="btn btn-sm btn-light float-end" id="refreshLogs">
-                            <i class="fas fa-sync-alt"></i>
-                        </button>
-                    </h5>
+
+            <div id="quizContainer" class="quiz-container mt-4" hidden>
+                <div class="quiz-header d-flex justify-content-between align-items-center">
+                    <div>
+                        <h5 class="mb-1">
+                            <i class="fas fa-brain me-2"></i>
+                            Pop Quiz
+                        </h5>
+                        <small class="text-muted" id="quizTopicLabel"></small>
+                    </div>
+                    <button class="btn btn-sm btn-outline-secondary" id="closeQuizButton">
+                        <i class="fas fa-times me-1"></i>Close
+                    </button>
                 </div>
-                
-                <!-- Logs Body -->
-                <div class="logs-body" id="logsContainer">
+                <div id="quizBody" class="quiz-body">
+                    <div class="text-center py-5 text-muted">
+                        <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                        <p>Building questions from the knowledge base...</p>
+                    </div>
+                </div>
+                <div class="quiz-footer d-flex justify-content-between align-items-center">
+                    <div class="text-muted" id="quizScoreLabel"></div>
+                    <button class="btn btn-primary" id="submitQuizButton" disabled>
+                        <i class="fas fa-check me-2"></i>Check Answers
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sources Panel -->
+        <div class="col-lg-4">
+            <div class="logs-panel sources-panel h-100 d-flex flex-column">
+                <div class="sources-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-link me-2"></i>
+                        Reference Sources
+                    </h5>
+                    <p class="text-white-50 small mb-0">
+                        Click to open the material the AI used in its answer.
+                    </p>
+                </div>
+                <div class="sources-body" id="sourcesContainer">
                     <div class="text-center text-muted py-5">
-                        <i class="fas fa-history fa-3x mb-3" style="color: #94a3b8;"></i>
-                        <p>No activity yet</p>
-                        <p class="small">Start chatting to see conversation history!</p>
+                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
+                        <p>No sources yet</p>
+                        <p class="small">Ask a question to see cited references.</p>
                     </div>
                 </div>
             </div>
@@ -119,6 +149,56 @@
     </div>
 </div>
 
+<!-- Quiz Modal -->
+<div class="modal fade" id="quizModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="quizForm">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-question-circle me-2"></i>
+                        Generate Pop Quiz
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="quizTopic" class="form-label">Select a topic</label>
+                        <select class="form-select" id="quizTopic" required>
+                            <option value="" selected disabled>Choose a medical focus</option>
+                            <option value="Airway management in trauma">Airway management in trauma</option>
+                            <option value="Pediatric trauma resuscitation">Pediatric trauma resuscitation</option>
+                            <option value="Advanced Trauma Life Support priorities">Advanced Trauma Life Support priorities</option>
+                            <option value="Polytrauma decision-making">Polytrauma decision-making</option>
+                            <option value="Imaging strategies in trauma care">Imaging strategies in trauma care</option>
+                        </select>
+                    </div>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="quizQuestionCount" class="form-label">Questions</label>
+                            <input type="number" class="form-control" id="quizQuestionCount" value="5" min="3" max="10" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="quizChoices" class="form-label">Choices per question</label>
+                            <input type="number" class="form-control" id="quizChoices" value="4" min="3" max="5" required>
+                        </div>
+                    </div>
+                    <div class="alert alert-info mt-3" role="alert">
+                        The quiz pulls directly from the medical references in the RAG knowledge base.
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-wand-magic-sparkles me-2"></i>
+                        Generate Quiz
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <script>
         // Generate a unique session ID
@@ -128,9 +208,17 @@
         const chatMessages = document.getElementById('chatMessages');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
-        const logsContainer = document.getElementById('logsContainer');
-        const refreshLogsButton = document.getElementById('refreshLogs');
         const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        const sourcesContainer = document.getElementById('sourcesContainer');
+        const quizModal = new bootstrap.Modal(document.getElementById('quizModal'));
+        const quizForm = document.getElementById('quizForm');
+        const openQuizButton = document.getElementById('openQuizButton');
+        const quizContainer = document.getElementById('quizContainer');
+        const quizBody = document.getElementById('quizBody');
+        const quizTopicLabel = document.getElementById('quizTopicLabel');
+        const quizScoreLabel = document.getElementById('quizScoreLabel');
+        const submitQuizButton = document.getElementById('submitQuizButton');
+        const closeQuizButton = document.getElementById('closeQuizButton');
         
         // Send message function
         async function sendMessage() {
@@ -165,8 +253,8 @@
                 // Add AI response to chat
                 addMessageToChat(data.response, 'ai');
                 
-                // Refresh logs
-                loadRecentLogs();
+                // Update sources panel
+                updateSources(data.sources || [], Boolean(data.isFallback));
                 
             } catch (error) {
                 console.error('Error:', error);
@@ -174,6 +262,77 @@
             } finally {
                 loadingModal.hide();
             }
+        }
+
+        function updateSources(sources, isFallback) {
+            sourcesContainer.innerHTML = '';
+
+            if (isFallback) {
+                sourcesContainer.innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-plug-circle-exclamation fa-3x mb-3" style="color: #ea580c;"></i>
+                        <p>Reference services are offline.</p>
+                        <p class="small">Launch the local RAG and Ollama servers, then ask again to see citations.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (!sources || sources.length === 0) {
+                sourcesContainer.innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
+                        <p>No sources yet</p>
+                        <p class="small">Ask a question to see cited references.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            sources.forEach(source => {
+                if (!source || !source.url) {
+                    return;
+                }
+
+                const entry = document.createElement('div');
+                entry.className = 'source-entry';
+
+                const titleRow = document.createElement('div');
+                titleRow.className = 'd-flex align-items-center justify-content-between gap-2 mb-2';
+
+                const titleLink = document.createElement('a');
+                titleLink.className = 'source-link';
+                titleLink.href = source.url;
+                titleLink.target = '_blank';
+                titleLink.rel = 'noopener noreferrer';
+                titleLink.textContent = source.title || 'Reference material';
+
+                const similarityBadge = document.createElement('span');
+                similarityBadge.className = 'source-similarity';
+                if (typeof source.similarity === 'number' && !Number.isNaN(source.similarity)) {
+                    similarityBadge.textContent = `${Math.round(source.similarity * 100)}% match`;
+                } else {
+                    similarityBadge.textContent = 'Reference';
+                }
+
+                titleRow.appendChild(titleLink);
+                titleRow.appendChild(similarityBadge);
+                entry.appendChild(titleRow);
+
+                if (source.preview) {
+                    const preview = document.createElement('p');
+                    preview.className = 'source-preview';
+                    preview.textContent = source.preview;
+                    entry.appendChild(preview);
+                }
+
+                const openHint = document.createElement('div');
+                openHint.className = 'source-open-hint';
+                openHint.innerHTML = '<i class="fas fa-arrow-up-right-from-square me-1"></i>Open source document';
+                entry.appendChild(openHint);
+
+                sourcesContainer.appendChild(entry);
+            });
         }
         
         // Add message to chat display
@@ -218,66 +377,6 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
         
-        // Load recent logs
-        async function loadRecentLogs() {
-            try {
-                const response = await fetch('/api/chat/logs?count=5');
-                const logs = await response.json();
-                
-                logsContainer.innerHTML = '';
-                
-                if (logs.length === 0) {
-                    logsContainer.innerHTML = `
-                        <div class="text-center text-muted">
-                            <i class="fas fa-history fa-2x mb-2"></i>
-                            <p>No logs yet. Start chatting to see conversation history!</p>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                logs.reverse().forEach(log => {
-                    const logDiv = document.createElement('div');
-                    logDiv.className = 'log-entry';
-                    
-                    // Parse TimeSpan format (HH:MM:SS.milliseconds) to milliseconds
-                    let responseTimeMs = 0;
-                    if (typeof log.responseTime === 'string') {
-                        const parts = log.responseTime.split(':');
-                        if (parts.length === 3) {
-                            const seconds = parseFloat(parts[2]);
-                            responseTimeMs = (parseInt(parts[0]) * 3600 + parseInt(parts[1]) * 60 + seconds) * 1000;
-                        } else {
-                            responseTimeMs = parseFloat(log.responseTime) || 0;
-                        }
-                    } else {
-                        responseTimeMs = log.responseTime || 0;
-                    }
-                    
-                    logDiv.innerHTML = `
-                        <div class="log-meta">
-                            <span><i class="fas fa-clock me-1"></i>${new Date(log.timestamp).toLocaleString()}</span>
-                            <span class="log-response-time">${Math.round(responseTimeMs)}ms</span>
-                        </div>
-                        <div class="mb-2">
-                            <i class="fas fa-user text-primary me-1"></i>
-                            <strong>User:</strong><br>
-                            <span class="text-muted">${log.userMessage.substring(0, 60)}${log.userMessage.length > 60 ? '...' : ''}</span>
-                        </div>
-                        <div>
-                            <i class="fas fa-robot text-success me-1"></i>
-                            <strong>AI:</strong><br>
-                            <span class="text-muted">${log.aiResponse.substring(0, 60)}${log.aiResponse.length > 60 ? '...' : ''}</span>
-                        </div>
-                    `;
-                    logsContainer.appendChild(logDiv);
-                });
-                
-            } catch (error) {
-                console.error('Error loading logs:', error);
-            }
-        }
-        
         // Event listeners
         sendButton.addEventListener('click', sendMessage);
         
@@ -287,10 +386,154 @@
                 sendMessage();
             }
         });
-        
-        refreshLogsButton.addEventListener('click', loadRecentLogs);
-        
-        // Load initial logs
-        loadRecentLogs();
+
+        openQuizButton.addEventListener('click', () => {
+            quizModal.show();
+        });
+
+        closeQuizButton.addEventListener('click', () => {
+            quizContainer.hidden = true;
+            quizBody.innerHTML = '';
+            quizScoreLabel.textContent = '';
+        });
+
+        submitQuizButton.addEventListener('click', () => {
+            gradeQuiz();
+        });
+
+        quizForm.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const topic = document.getElementById('quizTopic').value;
+            const questionCount = parseInt(document.getElementById('quizQuestionCount').value, 10);
+            const choices = parseInt(document.getElementById('quizChoices').value, 10);
+
+            if (!topic || !questionCount || !choices) {
+                return;
+            }
+
+            quizModal.hide();
+            quizContainer.hidden = false;
+            quizBody.innerHTML = `
+                <div class="text-center py-5 text-muted">
+                    <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                    <p>Generating quiz questions. This may take a few moments...</p>
+                </div>
+            `;
+            quizTopicLabel.textContent = `Topic: ${topic}`;
+            quizScoreLabel.textContent = '';
+            submitQuizButton.disabled = true;
+
+            try {
+                const response = await fetch('/api/quiz/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        topic: topic,
+                        questionCount: questionCount,
+                        choicesPerQuestion: choices
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Quiz request failed');
+                }
+
+                const quiz = await response.json();
+                renderQuiz(quiz);
+            } catch (error) {
+                console.error('Quiz error:', error);
+                quizBody.innerHTML = `
+                    <div class="text-center py-5 text-muted">
+                        <i class="fas fa-triangle-exclamation fa-2x mb-3 text-warning"></i>
+                        <p>We were unable to build a quiz right now.</p>
+                        <p class="small">Make sure the knowledge base is running and try a different topic.</p>
+                    </div>
+                `;
+            }
+        });
+
+        function renderQuiz(quiz) {
+            const questions = quiz.questions || [];
+
+            if (questions.length === 0) {
+                quizBody.innerHTML = `
+                    <div class="text-center py-5 text-muted">
+                        <i class="fas fa-circle-info fa-2x mb-3"></i>
+                        <p>No quiz questions were generated. Try a different topic.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            submitQuizButton.disabled = false;
+            quizScoreLabel.textContent = 'Choose your answers, then click "Check Answers".';
+
+            quizBody.innerHTML = questions.map((q, index) => {
+                const optionsHtml = q.options.map((option, optionIndex) => `
+                    <label class="quiz-option">
+                        <input type="radio" name="quiz-q-${index}" value="${optionIndex}" />
+                        <span>${option}</span>
+                    </label>
+                `).join('');
+
+                const hintsHtml = (q.sourceHints || []).map(hint => `<span class="badge rounded-pill bg-light text-dark me-1">${hint}</span>`).join('');
+
+                return `
+                    <div class="quiz-question-card" data-correct-index="${q.correctIndex}">
+                        <h6 class="quiz-question-title">Question ${index + 1}</h6>
+                        <p class="quiz-question-text">${q.question}</p>
+                        <div class="quiz-options">
+                            ${optionsHtml}
+                        </div>
+                        <div class="quiz-feedback alert alert-info mt-3" role="alert" hidden>
+                            <div class="quiz-feedback-answer">
+                                <i class="fas fa-check-circle me-2"></i>
+                                Correct answer: <span class="quiz-correct-answer"></span>
+                            </div>
+                            <div class="quiz-feedback-rationale mt-2">${q.rationale || 'Keep studying!'}</div>
+                            ${hintsHtml ? `<div class="quiz-feedback-sources mt-2">${hintsHtml}</div>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            quizContainer.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function gradeQuiz() {
+            const cards = quizBody.querySelectorAll('.quiz-question-card');
+            if (!cards.length) return;
+
+            let correct = 0;
+
+            cards.forEach(card => {
+                const correctIndex = parseInt(card.dataset.correctIndex, 10);
+                const options = [...card.querySelectorAll('input[type="radio"]')];
+                const feedback = card.querySelector('.quiz-feedback');
+                const correctAnswerEl = card.querySelector('.quiz-correct-answer');
+
+                const selected = options.find(option => option.checked);
+                const correctOption = options[correctIndex];
+
+                if (correctOption) {
+                    correctAnswerEl.textContent = correctOption.nextElementSibling.textContent;
+                }
+
+                if (selected && parseInt(selected.value, 10) === correctIndex) {
+                    card.classList.add('quiz-correct');
+                    card.classList.remove('quiz-incorrect');
+                    correct++;
+                } else {
+                    card.classList.add('quiz-incorrect');
+                    card.classList.remove('quiz-correct');
+                }
+
+                feedback.hidden = false;
+            });
+
+            quizScoreLabel.textContent = `Score: ${correct} / ${cards.length} correct`;
+        }
     </script>
 }

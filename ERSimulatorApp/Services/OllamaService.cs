@@ -8,7 +8,7 @@ namespace ERSimulatorApp.Services
 {
     public interface ILLMService
     {
-        Task<string> GetResponseAsync(string prompt);
+        Task<LLMResponse> GetResponseAsync(string prompt);
     }
 
     public class OllamaService : ILLMService
@@ -26,7 +26,7 @@ namespace ERSimulatorApp.Services
             _model = configuration["Ollama:Model"] ?? "phi3:mini";
         }
 
-        public async Task<string> GetResponseAsync(string prompt)
+        public async Task<LLMResponse> GetResponseAsync(string prompt)
         {
             try
             {
@@ -61,7 +61,10 @@ namespace ERSimulatorApp.Services
                 }
 
                 _logger.LogInformation($"Ollama response received: {ollamaResponse.Response.Substring(0, Math.Min(50, ollamaResponse.Response.Length))}...");
-                return ollamaResponse.Response;
+                return new LLMResponse
+                {
+                    Response = ollamaResponse.Response
+                };
             }
             catch (Exception ex)
             {
