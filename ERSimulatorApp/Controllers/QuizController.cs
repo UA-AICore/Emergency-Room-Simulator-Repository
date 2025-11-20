@@ -44,3 +44,9 @@ public class QuizRequest
     public int ChoicesPerQuestion { get; set; } = 4;
 }
 
+
+
+
+
+
+

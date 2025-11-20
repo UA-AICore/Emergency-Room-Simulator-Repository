@@ -47,9 +47,21 @@ namespace ERSimulatorApp.Services
                     return medicalResponse;
                 }
 
+                // Log the raw RAG response to verify it's medical and contains information from RAG database
+                _logger.LogInformation("Raw RAG response received from knowledge base (first 300 chars): {RAGPreview}", 
+                    medicalResponse.Response.Substring(0, Math.Min(300, medicalResponse.Response.Length)));
+                _logger.LogInformation("RAG response contains {SourceCount} source references", medicalResponse.Sources?.Count ?? 0);
+
                 // Add personality layer using Character Gateway
-                _logger.LogInformation("Adding medical instructor personality to response");
+                // This will transform the RAG medical information into Dr. Dexter's teaching style
+                // while preserving the medical facts from the RAG database
+                _logger.LogInformation("Adding medical instructor personality to RAG response (preserving medical facts)");
                 var finalResponse = await _characterGateway.AddPersonalityAsync(medicalResponse.Response, prompt);
+                
+                // Log the final response after personality layer to verify medical information is preserved
+                _logger.LogInformation("Final response after personality layer (first 300 chars): {FinalPreview}", 
+                    finalResponse.Substring(0, Math.Min(300, finalResponse.Length)));
+                _logger.LogInformation("Medical information from RAG database has been incorporated into Dr. Dexter's response");
 
                 medicalResponse.Response = finalResponse;
                 return medicalResponse;

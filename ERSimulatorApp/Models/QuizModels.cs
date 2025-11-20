@@ -18,3 +18,9 @@ public class QuizResponse
     public string? Message { get; set; }
 }
 
+
+
+
+
+
+

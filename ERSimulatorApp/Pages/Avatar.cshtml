@@ -1,0 +1,615 @@
+@page
+@model AvatarModel
+@{
+    ViewData["Title"] = "Medical Instructor Avatar";
+}
+
+<link rel="stylesheet" href="~/css/custom.css" />
+
+<div class="container-fluid h-100 py-4">
+    <div class="row h-100 g-4">
+        <!-- Main Avatar Area -->
+        <div class="col-lg-8 d-flex flex-column">
+            <div class="chat-container flex-grow-1 d-flex flex-column">
+                <!-- Header -->
+                <div class="chat-header">
+                    <h4 class="mb-2">
+                        <i class="fas fa-user-md me-2"></i>
+                        Medical Instructor Avatar
+                        <span class="badge bg-light text-dark ms-2" id="statusBadge">
+                            <i class="fas fa-circle text-secondary"></i> Ready
+                        </span>
+                    </h4>
+                    <small class="text-white-50">
+                        <i class="fas fa-id-card me-1"></i>
+                        Session: <span id="sessionIdDisplay">-</span>
+                    </small>
+                </div>
+                
+                <!-- Video Container -->
+                <div class="avatar-video-container position-relative" style="background: #000; min-height: 500px; display: flex; align-items: center; justify-content: center;">
+                    <video id="avatarVideo" autoplay playsinline class="w-100 h-100" style="max-height: 500px; object-fit: contain;" hidden></video>
+                    <div id="placeholder" class="text-center text-white p-5">
+                        <i class="fas fa-user-md fa-5x mb-4" style="opacity: 0.5;"></i>
+                        <h5>Medical Instructor Avatar</h5>
+                        <p class="text-white-50">Click "Start Session" to begin your conversation</p>
+                    </div>
+                    <div id="loading" class="text-center text-white p-5" hidden>
+                        <div class="spinner-border text-light mb-3" role="status"></div>
+                        <p id="loadingText">Connecting...</p>
+                    </div>
+                </div>
+                
+                <!-- Chat History -->
+                <div class="chat-messages" id="chatHistory" style="height: 200px; overflow-y: auto; background: #f8f9fa; padding: 1rem;">
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-comments fa-2x mb-2"></i>
+                        <p class="mb-0">Conversation transcript will appear here</p>
+                    </div>
+                </div>
+                
+                <!-- Input Controls -->
+                <div class="chat-input-container">
+                    <div class="input-group">
+                        <input type="text" id="messageInput" class="form-control" placeholder="Ask your medical question..." maxlength="500" disabled>
+                        <button class="btn btn-primary" type="button" id="sendButton" disabled>
+                            <i class="fas fa-paper-plane me-2"></i>Send
+                        </button>
+                        <button class="btn btn-success" type="button" id="startButton">
+                            <i class="fas fa-play me-2"></i>Start Session
+                        </button>
+                        <button class="btn btn-danger" type="button" id="stopButton" hidden>
+                            <i class="fas fa-stop me-2"></i>Stop Session
+                        </button>
+                    </div>
+                    <div class="mt-2 d-flex justify-content-between align-items-center">
+                        <small class="text-muted">
+                            <i class="fas fa-keyboard me-1"></i>
+                            Press Enter to send • Shift+Enter for new line
+                        </small>
+                        <small class="text-muted">
+                            <i class="fas fa-video me-1"></i>
+                            Powered by HeyGen Avatar + RAG-enhanced medical knowledge
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sources Panel -->
+        <div class="col-lg-4">
+            <div class="logs-panel sources-panel h-100 d-flex flex-column">
+                <div class="sources-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-link me-2"></i>
+                        Reference Sources
+                    </h5>
+                    <p class="text-white-50 small mb-0">Medical documents referenced in the avatar's response.</p>
+                </div>
+                <div class="sources-body" id="sourcesContainer">
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
+                        <p>No sources yet</p>
+                        <p class="small">Start a conversation to see cited references.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<!-- LiveKit Client Library -->
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+<script>
+(function() {
+    'use strict';
+
+    // ============================================
+    // Configuration & State
+    // ============================================
+    const API_BASE = '/api/avatar/v2/streaming';
+    let liveKitRoom = null;
+    let mediaStream = null;
+    let sessionData = null;
+    let streamingToken = null; // Cache the token used to create the session
+    let isSessionActive = false;
+
+    // ============================================
+    // DOM Elements
+    // ============================================
+    const elements = {
+        video: document.getElementById('avatarVideo'),
+        placeholder: document.getElementById('placeholder'),
+        loading: document.getElementById('loading'),
+        loadingText: document.getElementById('loadingText'),
+        chatHistory: document.getElementById('chatHistory'),
+        messageInput: document.getElementById('messageInput'),
+        sendButton: document.getElementById('sendButton'),
+        startButton: document.getElementById('startButton'),
+        stopButton: document.getElementById('stopButton'),
+        statusBadge: document.getElementById('statusBadge'),
+        sessionIdDisplay: document.getElementById('sessionIdDisplay'),
+        sourcesContainer: document.getElementById('sourcesContainer')
+    };
+
+    // ============================================
+    // Utility Functions
+    // ============================================
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function updateStatus(text, type = 'secondary') {
+        const icons = {
+            secondary: 'fa-circle',
+            success: 'fa-circle',
+            warning: 'fa-circle',
+            danger: 'fa-circle'
+        };
+        elements.statusBadge.innerHTML = `<i class="fas ${icons[type]} text-${type}"></i> ${text}`;
+    }
+
+    function showLoading(text = 'Loading...') {
+        elements.loadingText.textContent = text;
+        elements.loading.hidden = false;
+        elements.placeholder.hidden = true;
+    }
+
+    function hideLoading() {
+        elements.loading.hidden = true;
+    }
+
+    function addMessage(sender, message, isError = false) {
+        // Remove placeholder
+        const placeholder = elements.chatHistory.querySelector('.text-center');
+        if (placeholder) placeholder.remove();
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `mb-2 p-2 rounded ${isError ? 'bg-danger text-white' : sender === 'User' ? 'bg-primary text-white ms-auto' : 'bg-light'}`;
+        messageDiv.style.maxWidth = '85%';
+        messageDiv.style.marginLeft = sender === 'User' ? 'auto' : '0';
+
+        const icon = sender === 'User' ? 'fa-user' : isError ? 'fa-exclamation-circle' : 'fa-user-md';
+        const escapedMessage = escapeHtml(message).replace(/\n/g, '<br>');
+        
+        messageDiv.innerHTML = `
+            <div class="d-flex align-items-start">
+                <span><i class="fas ${icon} me-2"></i></span>
+                <div class="flex-grow-1">
+                    <strong>${escapeHtml(sender)}:</strong>
+                    <div>${escapedMessage}</div>
+                    <small class="text-muted">${new Date().toLocaleTimeString()}</small>
+                </div>
+            </div>
+        `;
+
+        elements.chatHistory.appendChild(messageDiv);
+        elements.chatHistory.scrollTop = elements.chatHistory.scrollHeight;
+    }
+
+    function updateSources(sources, isFallback) {
+        elements.sourcesContainer.innerHTML = '';
+
+        if (isFallback) {
+            elements.sourcesContainer.innerHTML = `
+                <div class="text-center text-muted py-5">
+                    <i class="fas fa-plug-circle-exclamation fa-3x mb-3" style="color: #ea580c;"></i>
+                    <p>Reference services are offline.</p>
+                </div>
+            `;
+            return;
+        }
+
+        if (!sources || sources.length === 0) {
+            elements.sourcesContainer.innerHTML = `
+                <div class="text-center text-muted py-5">
+                    <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
+                    <p>No sources yet</p>
+                </div>
+            `;
+            return;
+        }
+
+        sources.forEach(source => {
+            if (!source || !source.url) return;
+
+            const entry = document.createElement('div');
+            entry.className = 'source-entry mb-3 p-3 bg-dark rounded';
+            
+            const titleLink = document.createElement('a');
+            titleLink.className = 'text-white text-decoration-none';
+            titleLink.href = source.url;
+            titleLink.target = '_blank';
+            titleLink.textContent = source.title || 'Reference material';
+            titleLink.style.fontWeight = 'bold';
+
+            entry.appendChild(titleLink);
+
+            if (source.preview) {
+                const preview = document.createElement('p');
+                preview.className = 'text-white-50 small mt-2 mb-0';
+                preview.textContent = source.preview;
+                entry.appendChild(preview);
+            }
+
+            elements.sourcesContainer.appendChild(entry);
+        });
+    }
+
+    // ============================================
+    // LiveKit Connection
+    // ============================================
+    async function connectToLiveKit(url, accessToken) {
+        return new Promise((resolve, reject) => {
+            // Wait for LiveKit client to load
+            let attempts = 0;
+            const maxAttempts = 20;
+            
+            function checkLiveKit() {
+                const LiveKit = window.LivekitClient;
+                if (LiveKit) {
+                    try {
+                        const room = new LiveKit.Room({
+                            adaptiveStream: true,
+                            dynacast: true
+                        });
+
+                        // Set up event handlers
+                        let videoTrackReceived = false;
+                        let audioTrackReceived = false;
+
+                        room.on(LiveKit.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+                            console.log(`Track subscribed: ${track.kind} from ${participant?.identity || 'unknown'}`);
+                            
+                            if (track.kind === 'video' || track.kind === 'audio') {
+                                if (!mediaStream) {
+                                    mediaStream = new MediaStream();
+                                }
+                                mediaStream.addTrack(track.mediaStreamTrack);
+                                
+                                if (track.kind === 'video') {
+                                    videoTrackReceived = true;
+                                    elements.video.srcObject = mediaStream;
+                                    elements.video.hidden = false;
+                                    elements.placeholder.hidden = true;
+                                    
+                                    // Ensure video plays with audio enabled
+                                    elements.video.muted = false; // Ensure audio is not muted
+                                    elements.video.play().catch(err => {
+                                        console.error('Error playing video:', err);
+                                    });
+                                    
+                                    if (audioTrackReceived) {
+                                        hideLoading();
+                                        updateStatus('Connected', 'success');
+                                    } else {
+                                        updateStatus('Connecting audio...', 'warning');
+                                    }
+                                } else if (track.kind === 'audio') {
+                                    audioTrackReceived = true;
+                                    console.log('Audio track received and added to media stream');
+                                    
+                                    // Ensure audio is enabled on video element
+                                    if (elements.video.srcObject) {
+                                        elements.video.muted = false;
+                                        elements.video.play().catch(err => {
+                                            console.error('Error playing audio:', err);
+                                            // If autoplay fails, user may need to interact first
+                                            console.warn('Audio autoplay blocked - user interaction may be required');
+                                        });
+                                    }
+                                    
+                                    if (videoTrackReceived) {
+                                        hideLoading();
+                                        updateStatus('Connected', 'success');
+                                    }
+                                }
+                            }
+                        });
+
+                        room.on(LiveKit.RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+                            console.log(`Track unsubscribed: ${track.kind} from ${participant?.identity || 'unknown'}`);
+                            if (track.mediaStreamTrack && mediaStream) {
+                                mediaStream.removeTrack(track.mediaStreamTrack);
+                            }
+                            if (track.kind === 'video') {
+                                videoTrackReceived = false;
+                                elements.video.hidden = true;
+                                elements.placeholder.hidden = false;
+                                updateStatus('Video disconnected', 'warning');
+                            } else if (track.kind === 'audio') {
+                                audioTrackReceived = false;
+                                if (videoTrackReceived) {
+                                    updateStatus('Audio disconnected', 'warning');
+                                }
+                            }
+                        });
+
+                        room.on(LiveKit.RoomEvent.Disconnected, () => {
+                            console.log('Room disconnected');
+                            updateStatus('Disconnected', 'danger');
+                            isSessionActive = false;
+                            elements.messageInput.disabled = true;
+                            elements.sendButton.disabled = true;
+                        });
+
+                        // Connect with timeout
+                        const connectPromise = room.connect(url, accessToken);
+                        const timeoutPromise = new Promise((_, rejectTimeout) => 
+                            setTimeout(() => rejectTimeout(new Error('Connection timeout after 30 seconds')), 30000)
+                        );
+
+                        Promise.race([connectPromise, timeoutPromise])
+                            .then(() => {
+                                console.log('LiveKit connected successfully');
+                                resolve(room);
+                            })
+                            .catch(reject);
+                    } catch (error) {
+                        reject(error);
+                    }
+                } else if (attempts < maxAttempts) {
+                    attempts++;
+                    setTimeout(checkLiveKit, 500);
+                } else {
+                    reject(new Error('LiveKit client library failed to load'));
+                }
+            }
+
+            checkLiveKit();
+        });
+    }
+
+    // ============================================
+    // API Calls
+    // ============================================
+    async function createSession() {
+        const response = await fetch(`${API_BASE}/session/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || `HTTP ${response.status}`);
+        }
+
+        return await response.json();
+    }
+
+    async function sendTask(sessionId, message) {
+        const response = await fetch(`${API_BASE}/task`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: message,
+                conversationId: sessionId,
+                streamingToken: streamingToken // Include the cached token
+            })
+        });
+
+        if (!response.ok) {
+            let errorMessage = `HTTP ${response.status}`;
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.error || errorData.message || errorMessage;
+            } catch (e) {
+                // If response isn't JSON, try to get text
+                try {
+                    const errorText = await response.text();
+                    errorMessage = errorText || errorMessage;
+                } catch (e2) {
+                    // Use default error message
+                }
+            }
+            throw new Error(errorMessage);
+        }
+
+        return await response.json();
+    }
+
+    async function stopSession(sessionId) {
+        try {
+            await fetch(`${API_BASE}/session/stop`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    sessionId: sessionId,
+                    streamingToken: streamingToken // Include the cached token
+                })
+            });
+        } catch (error) {
+            console.error('Error stopping session:', error);
+        }
+    }
+
+    // ============================================
+    // Session Management
+    // ============================================
+    async function startSession() {
+        try {
+            elements.startButton.disabled = true;
+            showLoading('Creating session...');
+            updateStatus('Creating session...', 'warning');
+
+            // Step 1: Create streaming session
+            const sessionResponse = await createSession();
+            sessionData = sessionResponse;
+            streamingToken = sessionResponse.streamingToken; // Cache the token for reuse
+            elements.sessionIdDisplay.textContent = sessionResponse.sessionId.substring(0, 8) + '...';
+
+            showLoading('Connecting to avatar...');
+            updateStatus('Connecting...', 'warning');
+
+            // Step 2: Connect to LiveKit
+            liveKitRoom = await connectToLiveKit(sessionResponse.url, sessionResponse.accessToken);
+
+            // Step 3: Send initial greeting to make avatar animate
+            // Note: Avatar will remain static/idle until it receives a task
+            try {
+                console.log('Sending initial greeting to animate avatar...');
+                // Send a greeting that establishes Dr. Dexter as the instructor
+                // This will be processed through RAG+personality to create Dr. Dexter's introduction
+                const greeting = "Introduce yourself as Dr. Dexter, a medical instructor with decades of ER experience. Tell the student you have access to a comprehensive medical knowledge database and you're ready to teach them about emergency medicine and trauma care. Ask what medical topic they'd like to learn about.";
+                const greetingResponse = await sendTask(sessionResponse.sessionId, greeting);
+                
+                console.log('Greeting sent successfully, avatar should now be animating');
+                
+                if (greetingResponse.transcript) {
+                    addMessage('Avatar', greetingResponse.transcript);
+                }
+                if (greetingResponse.sources) {
+                    updateSources(greetingResponse.sources, greetingResponse.isFallback);
+                }
+            } catch (error) {
+                console.error('Error sending greeting:', error);
+                // Inform user but don't fail session
+                addMessage('System', `Note: Initial greeting failed (${error.message}). The avatar may appear static until you send a message.`, false);
+            }
+
+            // Step 4: Enable UI
+            isSessionActive = true;
+            elements.messageInput.disabled = false;
+            elements.sendButton.disabled = false;
+            elements.startButton.hidden = true;
+            elements.stopButton.hidden = false;
+            updateStatus('Connected', 'success');
+
+        } catch (error) {
+            console.error('Error starting session:', error);
+            addMessage('System', `Failed to start session: ${error.message}`, true);
+            updateStatus('Error', 'danger');
+            hideLoading();
+            elements.placeholder.hidden = false;
+            elements.startButton.disabled = false;
+
+            // Cleanup
+            if (sessionData) {
+                await stopSession(sessionData.sessionId);
+            }
+            if (liveKitRoom) {
+                try {
+                    liveKitRoom.disconnect();
+                } catch (e) {
+                    console.error('Error disconnecting:', e);
+                }
+            }
+            
+            // Reset state
+            sessionData = null;
+            streamingToken = null;
+        }
+    }
+
+    async function stopSessionHandler() {
+        try {
+            elements.stopButton.disabled = true;
+            updateStatus('Stopping...', 'warning');
+
+            if (sessionData) {
+                await stopSession(sessionData.sessionId);
+            }
+
+            if (liveKitRoom) {
+                liveKitRoom.disconnect();
+            }
+
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+            }
+
+            // Reset UI
+            isSessionActive = false;
+            sessionData = null;
+            liveKitRoom = null;
+            mediaStream = null;
+
+            elements.video.srcObject = null;
+            elements.video.hidden = true;
+            elements.placeholder.hidden = false;
+            hideLoading();
+            elements.messageInput.disabled = true;
+            elements.sendButton.disabled = true;
+            elements.startButton.hidden = false;
+            elements.stopButton.hidden = true;
+            elements.startButton.disabled = false;
+            elements.sessionIdDisplay.textContent = '-';
+            updateStatus('Ready', 'secondary');
+            sessionData = null;
+            streamingToken = null; // Clear cached token
+            addMessage('System', 'Session stopped.', false);
+
+        } catch (error) {
+            console.error('Error stopping session:', error);
+            addMessage('System', `Error stopping session: ${error.message}`, true);
+            elements.stopButton.disabled = false;
+        }
+    }
+
+    async function sendMessage() {
+        const message = elements.messageInput.value.trim();
+        if (!message || !isSessionActive) return;
+
+        addMessage('User', message);
+        elements.messageInput.value = '';
+        elements.sendButton.disabled = true;
+        showLoading('Processing...');
+        updateStatus('Processing...', 'warning');
+
+        try {
+            const response = await sendTask(sessionData.sessionId, message);
+            
+            if (response.transcript) {
+                addMessage('Avatar', response.transcript);
+            }
+            if (response.sources) {
+                updateSources(response.sources, response.isFallback);
+            }
+
+            hideLoading();
+            updateStatus('Connected', 'success');
+        } catch (error) {
+            console.error('Error sending message:', error);
+            addMessage('System', `Error: ${error.message}`, true);
+            hideLoading();
+            updateStatus('Error', 'danger');
+        } finally {
+            elements.sendButton.disabled = false;
+        }
+    }
+
+    // ============================================
+    // Event Listeners
+    // ============================================
+    elements.startButton.addEventListener('click', startSession);
+    elements.stopButton.addEventListener('click', stopSessionHandler);
+    elements.sendButton.addEventListener('click', sendMessage);
+    elements.messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && isSessionActive) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', async () => {
+        if (sessionData) {
+            await stopSession(sessionData.sessionId);
+        }
+        if (liveKitRoom) {
+            try {
+                liveKitRoom.disconnect();
+            } catch (e) {
+                console.error('Error disconnecting on unload:', e);
+            }
+        }
+    });
+
+    console.log('Avatar page initialized');
+})();
+</script>
+}
+

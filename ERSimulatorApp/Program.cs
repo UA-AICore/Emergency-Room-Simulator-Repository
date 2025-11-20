@@ -12,11 +12,12 @@ builder.Services.AddControllers()
 // Register our custom services
 var llmTimeout = builder.Configuration.GetValue<int?>("Ollama:TimeoutSeconds") ?? 60;
 var openAITimeout = builder.Configuration.GetValue<int?>("OpenAI:TimeoutSeconds") ?? 60;
+var ragTimeout = builder.Configuration.GetValue<int?>("RAG:TimeoutSeconds") ?? 120; // Longer timeout for remote RAG service
 
 // Register base RAG service with HttpClient
 builder.Services.AddHttpClient<RAGService>(client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(llmTimeout);
+    client.Timeout = TimeSpan.FromSeconds(ragTimeout);
 });
 
 // Explicitly register RAGService as a service for DI
@@ -39,6 +40,13 @@ builder.Services.AddSingleton<ICustomGPTService>(sp =>
 });
 
 builder.Services.AddHttpClient<QuizService>();
+
+// Register HeyGen Streaming service
+var heyGenTimeout = builder.Configuration.GetValue<int?>("HeyGen:TimeoutSeconds") ?? 120;
+builder.Services.AddHttpClient<IHeyGenStreamingService, HeyGenStreamingService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(heyGenTimeout);
+});
 
 // Add CORS for development
 builder.Services.AddCors(options =>

@@ -18,7 +18,7 @@ namespace ERSimulatorApp.Controllers
         private readonly ChatLogService _logService;
         private readonly ILogger<ChatController> _logger;
         private readonly string _sourceDocumentsPath;
-        private const string OfflineMessage = "I’m sorry, my reference services are offline right now. Please start the local RAG/Ollama servers and try again.";
+        private const string OfflineMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
 
         public ChatController(
             ILLMService llmService, 
