@@ -93,3 +93,4 @@ To test if the current solution works:
 3. Compare what the avatar says vs. what was sent
 4. If avatar still ignores our text, try other solutions
 
+
