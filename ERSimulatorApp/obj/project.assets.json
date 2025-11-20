@@ -242,19 +242,24 @@
     ]
   },
   "packageFolders": {
-    "/Users/hginman/.nuget/packages/": {}
+    "C:\\Users\\AICoreXR\\.nuget\\packages\\": {},
+    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/Users/hginman/ER Simulator Web App/ERSimulatorApp/ERSimulatorApp.csproj",
+      "projectUniqueName": "C:\\Users\\AICoreXR\\Desktop\\Net\\ER-Simulator-Web-App-main2\\ER-Simulator-Web-App-main\\ERSimulatorApp\\ERSimulatorApp.csproj",
       "projectName": "ERSimulatorApp",
-      "projectPath": "/Users/hginman/ER Simulator Web App/ERSimulatorApp/ERSimulatorApp.csproj",
-      "packagesPath": "/Users/hginman/.nuget/packages/",
-      "outputPath": "/Users/hginman/ER Simulator Web App/ERSimulatorApp/obj/",
+      "projectPath": "C:\\Users\\AICoreXR\\Desktop\\Net\\ER-Simulator-Web-App-main2\\ER-Simulator-Web-App-main\\ERSimulatorApp\\ERSimulatorApp.csproj",
+      "packagesPath": "C:\\Users\\AICoreXR\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\AICoreXR\\Desktop\\Net\\ER-Simulator-Web-App-main2\\ER-Simulator-Web-App-main\\ERSimulatorApp\\obj\\",
       "projectStyle": "PackageReference",
+      "fallbackFolders": [
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+      ],
       "configFilePaths": [
-        "/Users/hginman/.nuget/NuGet/NuGet.Config"
+        "C:\\Users\\AICoreXR\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config"
       ],
       "originalTargetFrameworks": [
         "net8.0"
@@ -300,20 +305,6 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
-        "downloadDependencies": [
-          {
-            "name": "Microsoft.AspNetCore.App.Ref",
-            "version": "[8.0.20, 8.0.20]"
-          },
-          {
-            "name": "Microsoft.NETCore.App.Host.osx-arm64",
-            "version": "[8.0.20, 8.0.20]"
-          },
-          {
-            "name": "Microsoft.NETCore.App.Ref",
-            "version": "[8.0.20, 8.0.20]"
-          }
-        ],
         "frameworkReferences": {
           "Microsoft.AspNetCore.App": {
             "privateAssets": "none"
@@ -322,7 +313,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/9.0.305/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.301/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

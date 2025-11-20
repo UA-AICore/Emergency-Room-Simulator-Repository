@@ -41,11 +41,24 @@ builder.Services.AddSingleton<ICustomGPTService>(sp =>
 
 builder.Services.AddHttpClient<QuizService>();
 
-// Register HeyGen Streaming service
+// Register HeyGen Streaming service (for real-time avatar streaming)
 var heyGenTimeout = builder.Configuration.GetValue<int?>("HeyGen:TimeoutSeconds") ?? 120;
 builder.Services.AddHttpClient<IHeyGenStreamingService, HeyGenStreamingService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(heyGenTimeout);
+});
+
+// Register HeyGen Video Proxy service (for asynchronous video generation)
+builder.Services.AddHttpClient<IHeyGenVideoProxyService, HeyGenVideoProxyService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(heyGenTimeout);
+});
+
+// Register Whisper ASR service
+var whisperTimeout = builder.Configuration.GetValue<int?>("Whisper:TimeoutSeconds") ?? 60;
+builder.Services.AddHttpClient<IWhisperService, WhisperService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(whisperTimeout);
 });
 
 // Add CORS for development
