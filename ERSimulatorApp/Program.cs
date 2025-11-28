@@ -1,6 +1,21 @@
 using ERSimulatorApp.Services;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add environment variables to configuration (for production secrets)
+builder.Configuration.AddEnvironmentVariables();
+
+// Add forwarded headers middleware to handle reverse proxy scenarios
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                              ForwardedHeaders.XForwardedProto;
+    // Honor path base from reverse proxy
+    options.ForwardedPrefixHeaderName = "X-Forwarded-Prefix";
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // Add services to the container.
 builder.Services.AddRazorPages();
@@ -73,6 +88,16 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Use forwarded headers middleware (must be early in pipeline)
+app.UseForwardedHeaders();
+
+// Configure path base from environment variable
+var pathBase = builder.Configuration["ASPNETCORE_PATHBASE"];
+if (!string.IsNullOrEmpty(pathBase))
+{
+    app.UsePathBase(pathBase);
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

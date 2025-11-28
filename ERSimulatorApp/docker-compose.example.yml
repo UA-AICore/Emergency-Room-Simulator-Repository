@@ -1,0 +1,62 @@
+# Example Docker Compose configuration for ER Simulator App
+# Copy this file and update with your actual values
+
+version: '3.8'
+
+services:
+  ersimulator:
+    image: ersimulator-app:latest
+    container_name: ersimulator-app
+    ports:
+      - "8080:8080"
+    environment:
+      # OpenAI Configuration
+      - OpenAI__ApiKey=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
+      - OpenAI__Model=gpt-4.1
+      - OpenAI__TimeoutSeconds=60
+      
+      # RAG Configuration
+      - RAG__ApiKey=sk-xOHZ6CFRvTXaxmKLkrRYkxWAxVayywgH
+      - RAG__BaseUrl=https://aicore-healthcareteam-llm-server.tra220030.projects.jetstream-cloud.org/v1/chat/completions
+      - RAG__Model=meta-llama/Llama-3.2-1B-instruct
+      - RAG__TopK=5
+      - RAG__TimeoutSeconds=120
+      
+      # HeyGen Configuration
+      - HeyGen__ApiKey=sk_V2_hgu_kVnKR3rBT13_7oT6Ptetv8L09piUrAuYtJLRoLEjORa6
+      - HeyGen__AvatarId=Dexter_Doctor_Sitting2_public
+      - HeyGen__LookId=Dexter_Doctor_Sitting2_public
+      - HeyGen__ProxyBaseUrl=http://149.165.154.35:8095
+      - HeyGen__TimeoutSeconds=120
+      
+      # Personality Configuration
+      - Personality__Enabled=true
+      - Personality__Type=MedicalInstructor
+      
+      # Whisper Configuration
+      - Whisper__TimeoutSeconds=60
+      
+      # Path Base (only if app is hosted at a path prefix)
+      # Uncomment and update if needed:
+      # - ASPNETCORE_PATHBASE=/your-app-name
+      
+      # ASP.NET Core Configuration
+      - ASPNETCORE_URLS=http://+:8080
+      - ASPNETCORE_ENVIRONMENT=Production
+    volumes:
+      # Persistent data directory
+      - app-data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  app-data:
+    driver: local
+
+
+

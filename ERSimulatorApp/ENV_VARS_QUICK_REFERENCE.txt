@@ -1,0 +1,85 @@
+================================================================================
+ER SIMULATOR APP - ENVIRONMENT VARIABLES QUICK REFERENCE
+================================================================================
+
+REQUIRED ENVIRONMENT VARIABLES (Copy & Paste Ready)
+----------------------------------------------------
+
+# OpenAI API Key (for personality layer)
+OpenAI__ApiKey=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
+
+# RAG API Key (for medical knowledge base)
+RAG__ApiKey=sk-xOHZ6CFRvTXaxmKLkrRYkxWAxVayywgH
+
+# RAG Server URL
+RAG__BaseUrl=https://aicore-healthcareteam-llm-server.tra220030.projects.jetstream-cloud.org/v1/chat/completions
+
+# HeyGen API Key (for avatar streaming)
+HeyGen__ApiKey=sk_V2_hgu_kVnKR3rBT13_7oT6Ptetv8L09piUrAuYtJLRoLEjORa6
+
+# Path Base (ONLY if app is hosted at /your-app-name/, otherwise leave unset)
+# ASPNETCORE_PATHBASE=/your-app-name
+
+
+QUICK SETUP METHODS
+-------------------
+
+Method 1: Docker Run
+  docker run -d \
+    -e OpenAI__ApiKey=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 \
+    -e RAG__ApiKey=sk-xOHZ6CFRvTXaxmKLkrRYkxWAxVayywgH \
+    -e RAG__BaseUrl=https://aicore-healthcareteam-llm-server.tra220030.projects.jetstream-cloud.org/v1/chat/completions \
+    -e HeyGen__ApiKey=sk_V2_hgu_kVnKR3rBT13_7oT6Ptetv8L09piUrAuYtJLRoLEjORa6 \
+    -p 8080:8080 \
+    your-image-name
+
+Method 2: System Environment Variables
+  export OpenAI__ApiKey=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
+  export RAG__ApiKey=sk-xOHZ6CFRvTXaxmKLkrRYkxWAxVayywgH
+  export RAG__BaseUrl=https://aicore-healthcareteam-llm-server.tra220030.projects.jetstream-cloud.org/v1/chat/completions
+  export HeyGen__ApiKey=sk_V2_hgu_kVnKR3rBT13_7oT6Ptetv8L09piUrAuYtJLRoLEjORa6
+
+Method 3: Use the provided script
+  ./set-env-vars.sh
+
+
+VERIFICATION
+------------
+
+# Check if variables are set
+echo $OpenAI__ApiKey
+echo $RAG__ApiKey
+echo $RAG__BaseUrl
+echo $HeyGen__ApiKey
+
+# Test application health
+curl http://localhost:8080/api/health
+curl http://localhost:8080/api/health/detailed
+
+
+IMPORTANT NOTES
+---------------
+
+✓ Use DOUBLE underscores (__) not single (_)
+✓ No quotes around values unless required by your platform
+✓ Path Base is OPTIONAL - only set if app is at /path/prefix/
+✓ Restart application after setting variables
+✓ Never commit API keys to version control
+
+
+TROUBLESHOOTING
+---------------
+
+Problem: Variables not loading
+Solution: Verify double underscores (__) and restart app
+
+Problem: API key errors
+Solution: Check keys are correct, no extra spaces, verify network connectivity
+
+Problem: Path base issues
+Solution: Only set ASPNETCORE_PATHBASE if app is behind reverse proxy with path prefix
+
+================================================================================
+
+
+
