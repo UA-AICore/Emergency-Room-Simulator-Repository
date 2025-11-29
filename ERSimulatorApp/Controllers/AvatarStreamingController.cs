@@ -111,8 +111,21 @@ namespace ERSimulatorApp.Controllers
                     return BadRequest(new { error = "Audio file is empty" });
                 }
 
-                _logger.LogInformation("Processing audio input for session {SessionId}, file size: {Size} bytes", 
-                    conversationId, audioFile.Length);
+                _logger.LogInformation("Processing audio input for session {SessionId}, file: {FileName}, size: {Size} bytes, content type: {ContentType}", 
+                    conversationId, audioFile.FileName, audioFile.Length, audioFile.ContentType);
+
+                // Validate file size (minimum 1KB, maximum 25MB for Whisper API)
+                if (audioFile.Length < 1024)
+                {
+                    _logger.LogWarning("Audio file is too small: {Size} bytes", audioFile.Length);
+                    return BadRequest(new { error = "Audio recording is too short. Please record for at least 1-2 seconds." });
+                }
+
+                if (audioFile.Length > 25 * 1024 * 1024) // 25MB limit
+                {
+                    _logger.LogWarning("Audio file is too large: {Size} bytes", audioFile.Length);
+                    return BadRequest(new { error = "Audio file is too large. Maximum size is 25MB." });
+                }
 
                 // Step 1: Transcribe audio using Whisper ASR
                 _logger.LogInformation("Step 1: Transcribing audio with Whisper...");
@@ -124,15 +137,26 @@ namespace ERSimulatorApp.Controllers
                     
                     if (string.IsNullOrWhiteSpace(transcript))
                     {
-                        _logger.LogWarning("Whisper returned empty transcript");
-                        return BadRequest(new { error = "Could not transcribe audio. Please try again." });
+                        _logger.LogWarning("Whisper returned empty transcript for file: {FileName}, size: {Size} bytes", 
+                            audioFile.FileName, audioFile.Length);
+                        return BadRequest(new { error = "Could not transcribe audio. The recording may be too quiet, too short, or contain no speech. Please try again." });
                     }
 
                     _logger.LogInformation("Audio transcribed successfully: {Transcript}", transcript);
                 }
+                catch (HttpRequestException httpEx)
+                {
+                    _logger.LogError(httpEx, "HTTP error transcribing audio with Whisper: {Message}", httpEx.Message);
+                    return StatusCode(500, new
+                    {
+                        success = false,
+                        error = "Failed to transcribe audio",
+                        message = httpEx.Message
+                    });
+                }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error transcribing audio with Whisper");
+                    _logger.LogError(ex, "Error transcribing audio with Whisper: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
                     return StatusCode(500, new
                     {
                         success = false,
@@ -238,38 +262,18 @@ namespace ERSimulatorApp.Controllers
                         error = "Failed to send message to avatar, but received response from knowledge base",
                         message = ex.Message,
                         transcript = ragResponse.Response,
-                        sources = (ragResponse.Sources ?? new List<SourceReference>()).Select(s => new ChatSourceLink
-                        {
-                            Title = string.IsNullOrWhiteSpace(s.Title)
-                                ? Path.GetFileName(s.Filename) ?? "Source"
-                                : s.Title,
-                            Preview = s.Preview,
-                            Similarity = s.Similarity,
-                            Url = BuildSourceUrl(s.Filename)
-                        })
-                        .Where(link => !string.IsNullOrWhiteSpace(link.Url))
-                        .ToList(),
+                    sources = new List<ChatSourceLink>(),
                         isFallback = false
                     });
                 }
 
-                // Step 5: Return success with transcript and sources
+                // Step 5: Return success with transcript
                 return Ok(new
                 {
                     success = true,
                     userTranscript = transcript,
                     avatarTranscript = ragResponse.Response,
-                    sources = (ragResponse.Sources ?? new List<SourceReference>()).Select(s => new ChatSourceLink
-                    {
-                        Title = string.IsNullOrWhiteSpace(s.Title)
-                            ? Path.GetFileName(s.Filename) ?? "Source"
-                            : s.Title,
-                        Preview = s.Preview,
-                        Similarity = s.Similarity,
-                        Url = BuildSourceUrl(s.Filename)
-                    })
-                    .Where(link => !string.IsNullOrWhiteSpace(link.Url))
-                    .ToList(),
+                    sources = new List<ChatSourceLink>(),
                     isFallback = false
                 });
             }
@@ -401,17 +405,7 @@ namespace ERSimulatorApp.Controllers
                         error = "Failed to send message to avatar, but received response from knowledge base",
                         message = ex.Message,
                         transcript = ragResponse.Response,
-                        sources = (ragResponse.Sources ?? new List<SourceReference>()).Select(s => new ChatSourceLink
-                        {
-                            Title = string.IsNullOrWhiteSpace(s.Title)
-                                ? Path.GetFileName(s.Filename) ?? "Source"
-                                : s.Title,
-                            Preview = s.Preview,
-                            Similarity = s.Similarity,
-                            Url = BuildSourceUrl(s.Filename)
-                        })
-                        .Where(link => !string.IsNullOrWhiteSpace(link.Url))
-                        .ToList(),
+                    sources = new List<ChatSourceLink>(),
                         isFallback = false
                     });
                 }
@@ -421,17 +415,7 @@ namespace ERSimulatorApp.Controllers
                 {
                     success = true,
                     transcript = ragResponse.Response,
-                    sources = (ragResponse.Sources ?? new List<SourceReference>()).Select(s => new ChatSourceLink
-                    {
-                        Title = string.IsNullOrWhiteSpace(s.Title)
-                            ? Path.GetFileName(s.Filename) ?? "Source"
-                            : s.Title,
-                        Preview = s.Preview,
-                        Similarity = s.Similarity,
-                        Url = BuildSourceUrl(s.Filename)
-                    })
-                    .Where(link => !string.IsNullOrWhiteSpace(link.Url))
-                    .ToList(),
+                    sources = new List<ChatSourceLink>(),
                     isFallback = false
                 });
             }

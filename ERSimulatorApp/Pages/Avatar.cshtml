@@ -94,26 +94,6 @@
                 </div>
             </div>
         </div>
-
-        <!-- Sources Panel -->
-        <div class="col-lg-4" style="display: none;">
-            <div class="logs-panel sources-panel h-100 d-flex flex-column">
-                <div class="sources-header">
-                    <h5 class="mb-0">
-                        <i class="fas fa-link me-2"></i>
-                        Reference Sources
-                    </h5>
-                    <p class="text-white-50 small mb-0">Medical documents referenced in the avatar's response.</p>
-                </div>
-                <div class="sources-body" id="sourcesContainer">
-                    <div class="text-center text-muted py-5">
-                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
-                        <p>No sources yet</p>
-                        <p class="small">Start a conversation to see cited references.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -225,7 +205,6 @@
         stopButton: document.getElementById('stopButton'),
         statusBadge: document.getElementById('statusBadge'),
         sessionIdDisplay: document.getElementById('sessionIdDisplay'),
-        sourcesContainer: document.getElementById('sourcesContainer'),
         recordingStatus: document.getElementById('recordingStatus')
     };
 
@@ -286,54 +265,6 @@
         elements.chatHistory.scrollTop = elements.chatHistory.scrollHeight;
     }
 
-    function updateSources(sources, isFallback) {
-        elements.sourcesContainer.innerHTML = '';
-
-        if (isFallback) {
-            elements.sourcesContainer.innerHTML = `
-                <div class="text-center text-muted py-5">
-                    <i class="fas fa-plug-circle-exclamation fa-3x mb-3" style="color: #ea580c;"></i>
-                    <p>Reference services are offline.</p>
-                </div>
-            `;
-            return;
-        }
-
-        if (!sources || sources.length === 0) {
-            elements.sourcesContainer.innerHTML = `
-                <div class="text-center text-muted py-5">
-                    <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
-                    <p>No sources yet</p>
-                </div>
-            `;
-            return;
-        }
-
-        sources.forEach(source => {
-            if (!source || !source.url) return;
-
-            const entry = document.createElement('div');
-            entry.className = 'source-entry mb-3 p-3 bg-dark rounded';
-            
-            const titleLink = document.createElement('a');
-            titleLink.className = 'text-white text-decoration-none';
-            titleLink.href = source.url;
-            titleLink.target = '_blank';
-            titleLink.textContent = source.title || 'Reference material';
-            titleLink.style.fontWeight = 'bold';
-
-            entry.appendChild(titleLink);
-
-            if (source.preview) {
-                const preview = document.createElement('p');
-                preview.className = 'text-white-50 small mt-2 mb-0';
-                preview.textContent = source.preview;
-                entry.appendChild(preview);
-            }
-
-            elements.sourcesContainer.appendChild(entry);
-        });
-    }
 
     // ============================================
     // LiveKit Connection
@@ -560,7 +491,6 @@
         console.log('[API] /task success:', { 
             hasTranscript: !!data.transcript,
             transcriptLength: data.transcript?.length || 0,
-            sourceCount: data.sources?.length || 0
         });
         return data;
     }
@@ -620,9 +550,6 @@
                 
                 if (greetingResponse.transcript) {
                     addMessage('Avatar', greetingResponse.transcript);
-                }
-                if (greetingResponse.sources) {
-                    updateSources(greetingResponse.sources, greetingResponse.isFallback);
                 }
             } catch (error) {
                 console.error('Error sending greeting:', error);
@@ -752,9 +679,6 @@
             if (response.transcript) {
                 addMessage('Avatar', response.transcript);
             }
-            if (response.sources) {
-                updateSources(response.sources, response.isFallback);
-            }
 
             hideLoading();
             updateStatus('Connected', 'success');
@@ -771,8 +695,46 @@
     // ============================================
     // Audio Recording Functions
     // ============================================
+    
+    /**
+     * Check if getUserMedia is available and if the page is served securely
+     */
+    function checkMicrophoneAvailability() {
+        // Check if getUserMedia is available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            return {
+                available: false,
+                error: 'getUserMedia API is not available in this browser. Please use a modern browser like Chrome, Firefox, or Edge.'
+            };
+        }
+
+        // Check if page is served over HTTPS or localhost
+        const isSecure = window.location.protocol === 'https:' || 
+                        window.location.hostname === 'localhost' || 
+                        window.location.hostname === '127.0.0.1' ||
+                        window.location.hostname === '[::1]';
+        
+        if (!isSecure) {
+            return {
+                available: false,
+                error: 'Microphone access requires HTTPS. Please access this page via HTTPS or use localhost.'
+            };
+        }
+
+        return { available: true };
+    }
+
     async function startRecording() {
         try {
+            // First check if microphone access is available
+            const availabilityCheck = checkMicrophoneAvailability();
+            if (!availabilityCheck.available) {
+                addMessage('System', availabilityCheck.error, true);
+                isRecording = false;
+                elements.recordButton.disabled = false;
+                return;
+            }
+
             // Request microphone access
             audioStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
@@ -783,10 +745,33 @@
                 } 
             });
 
-            // Create MediaRecorder with webm format (compatible with Whisper)
-            mediaRecorder = new MediaRecorder(audioStream, {
-                mimeType: 'audio/webm;codecs=opus'
-            });
+            // Create MediaRecorder - prefer formats that Whisper API handles best
+            // Try wav first (most compatible), then mp3, then webm, then browser default
+            let mimeType = '';
+            const preferredTypes = [
+                'audio/wav',
+                'audio/mp3',
+                'audio/mpeg',
+                'audio/webm;codecs=opus',
+                'audio/webm',
+                'audio/mp4',
+                'audio/m4a'
+            ];
+            
+            for (const type of preferredTypes) {
+                if (MediaRecorder.isTypeSupported(type)) {
+                    mimeType = type;
+                    console.log('[AUDIO] Using MIME type:', mimeType);
+                    break;
+                }
+            }
+            
+            if (!mimeType) {
+                console.warn('[AUDIO] No preferred MIME type supported, using browser default');
+            }
+
+            const recorderOptions = mimeType ? { mimeType: mimeType } : {};
+            mediaRecorder = new MediaRecorder(audioStream, recorderOptions);
 
             audioChunks = [];
 
@@ -798,7 +783,7 @@
 
             mediaRecorder.onstop = async () => {
                 // Create blob from recorded chunks
-                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
                 
                 // Stop audio stream
                 if (audioStream) {
@@ -822,8 +807,35 @@
 
         } catch (error) {
             console.error('Error starting recording:', error);
-            addMessage('System', `Error accessing microphone: ${error.message}`, true);
             isRecording = false;
+            elements.recordButton.disabled = false;
+            
+            // Provide specific error messages based on error type
+            let errorMessage = 'Error accessing microphone: ';
+            
+            if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                errorMessage += 'Microphone permission denied. Please allow microphone access in your browser settings and try again.';
+            } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+                errorMessage += 'No microphone found. Please connect a microphone and try again.';
+            } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+                errorMessage += 'Microphone is already in use by another application. Please close other applications using the microphone and try again.';
+            } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
+                errorMessage += 'Microphone does not support the required settings. Trying with default settings...';
+                // Try again with default settings
+                try {
+                    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    // Retry recording with default settings
+                    startRecording();
+                    return;
+                } catch (retryError) {
+                    errorMessage += ' Failed to access microphone even with default settings.';
+                }
+            } else {
+                errorMessage += error.message || 'Unknown error occurred.';
+            }
+            
+            addMessage('System', errorMessage, true);
+            updateStatus('Microphone Error', 'danger');
         }
     }
 
@@ -849,12 +861,64 @@
             return;
         }
 
+        // Validate audio blob
+        if (!audioBlob || audioBlob.size === 0) {
+            addMessage('System', 'No audio recorded. Please try recording again.', true);
+            elements.recordButton.disabled = false;
+            updateStatus('Recording Error', 'danger');
+            return;
+        }
+
+        // Check minimum size (very small files are likely empty or corrupted)
+        if (audioBlob.size < 1000) { // Less than 1KB is suspicious
+            addMessage('System', 'Audio recording is too short or empty. Please record for at least 1-2 seconds.', true);
+            elements.recordButton.disabled = false;
+            updateStatus('Recording Error', 'danger');
+            return;
+        }
+
         try {
             showLoading('Processing audio...');
             
+            // Determine file extension based on blob type
+            // Match the actual MIME type used for recording
+            let fileExtension = 'webm';
+            let fileName = 'recording.webm';
+            
+            if (audioBlob.type) {
+                if (audioBlob.type.includes('wav')) {
+                    fileExtension = 'wav';
+                    fileName = 'recording.wav';
+                } else if (audioBlob.type.includes('mp3') || audioBlob.type.includes('mpeg')) {
+                    fileExtension = 'mp3';
+                    fileName = 'recording.mp3';
+                } else if (audioBlob.type.includes('mp4')) {
+                    fileExtension = 'mp4';
+                    fileName = 'recording.mp4';
+                } else if (audioBlob.type.includes('m4a')) {
+                    fileExtension = 'm4a';
+                    fileName = 'recording.m4a';
+                } else if (audioBlob.type.includes('webm')) {
+                    fileExtension = 'webm';
+                    fileName = 'recording.webm';
+                } else {
+                    // Default to webm but log warning
+                    console.warn('[AUDIO] Unknown blob type:', audioBlob.type, '- using webm as default');
+                }
+            } else {
+                console.warn('[AUDIO] No blob type detected - using webm as default');
+            }
+            
+            console.log('[AUDIO] Sending audio blob:', {
+                type: audioBlob.type,
+                size: audioBlob.size,
+                fileName: fileName,
+                extension: fileExtension
+            });
+            
             // Create FormData
             const formData = new FormData();
-            formData.append('audio', audioBlob, 'recording.webm');
+            formData.append('audio', audioBlob, fileName);
             formData.append('conversationId', sessionData.sessionId);
             if (streamingToken) {
                 formData.append('streamingToken', streamingToken);
@@ -898,10 +962,6 @@
                 addMessage('Avatar', data.avatarTranscript);
             }
 
-            // Update sources
-            if (data.sources) {
-                updateSources(data.sources, data.isFallback);
-            }
 
             hideLoading();
             updateStatus('Connected', 'success');

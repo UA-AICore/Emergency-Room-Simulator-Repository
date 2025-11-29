@@ -12,7 +12,7 @@
 <div class="container-fluid h-100 py-4">
     <div class="row h-100 g-4">
         <!-- Chat Interface -->
-        <div class="col-lg-8 d-flex flex-column">
+        <div class="col-12 d-flex flex-column">
             <div class="chat-container flex-grow-1 d-flex flex-column">
                 <!-- Chat Header -->
                 <div class="chat-header">
@@ -110,28 +110,6 @@
                 </div>
             </div>
         </div>
-
-        <!-- Sources Panel -->
-        <div class="col-lg-4">
-            <div class="logs-panel sources-panel h-100 d-flex flex-column">
-                <div class="sources-header">
-                    <h5 class="mb-0">
-                        <i class="fas fa-link me-2"></i>
-                        Reference Sources
-                    </h5>
-                    <p class="text-white-50 small mb-0">
-                        Click to open the material the AI used in its answer.
-                    </p>
-                </div>
-                <div class="sources-body" id="sourcesContainer">
-                    <div class="text-center text-muted py-5">
-                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
-                        <p>No sources yet</p>
-                        <p class="small">Ask a question to see cited references.</p>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -208,9 +186,8 @@
         const chatMessages = document.getElementById('chatMessages');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
-        const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
-        const sourcesContainer = document.getElementById('sourcesContainer');
-        const quizModal = new bootstrap.Modal(document.getElementById('quizModal'));
+                const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+                const quizModal = new bootstrap.Modal(document.getElementById('quizModal'));
         const quizForm = document.getElementById('quizForm');
         const openQuizButton = document.getElementById('openQuizButton');
         const quizContainer = document.getElementById('quizContainer');
@@ -253,9 +230,6 @@
                 // Add AI response to chat
                 addMessageToChat(data.response, 'ai');
                 
-                // Update sources panel
-                updateSources(data.sources || [], Boolean(data.isFallback));
-                
             } catch (error) {
                 console.error('Error:', error);
                 addMessageToChat('Sorry, I encountered an error. Please try again.', 'ai', true);
@@ -264,68 +238,6 @@
             }
         }
 
-        function updateSources(sources, isFallback) {
-            sourcesContainer.innerHTML = '';
-
-            if (isFallback) {
-                sourcesContainer.innerHTML = `
-                    <div class="text-center text-muted py-5">
-                        <i class="fas fa-plug-circle-exclamation fa-3x mb-3" style="color: #ea580c;"></i>
-                        <p>Reference services are offline.</p>
-                        <p class="small">The RAG service may be temporarily unavailable. Please try again later.</p>
-                    </div>
-                `;
-                return;
-            }
-
-            if (!sources || sources.length === 0) {
-                sourcesContainer.innerHTML = `
-                    <div class="text-center text-muted py-5">
-                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
-                        <p>No sources yet</p>
-                        <p class="small">Ask a question to see cited references.</p>
-                    </div>
-                `;
-                return;
-            }
-
-            sources.forEach(source => {
-                if (!source || !source.url) {
-                    return;
-                }
-
-                const entry = document.createElement('div');
-                entry.className = 'source-entry';
-
-                const titleRow = document.createElement('div');
-                titleRow.className = 'd-flex align-items-center justify-content-between gap-2 mb-2';
-
-                const titleLink = document.createElement('a');
-                titleLink.className = 'source-link';
-                titleLink.href = source.url;
-                titleLink.target = '_blank';
-                titleLink.rel = 'noopener noreferrer';
-                titleLink.textContent = source.title || 'Reference material';
-
-                titleRow.appendChild(titleLink);
-                entry.appendChild(titleRow);
-
-                if (source.preview) {
-                    const preview = document.createElement('p');
-                    preview.className = 'source-preview';
-                    preview.textContent = source.preview;
-                    entry.appendChild(preview);
-                }
-
-                const openHint = document.createElement('div');
-                openHint.className = 'source-open-hint';
-                openHint.innerHTML = '<i class="fas fa-arrow-up-right-from-square me-1"></i>Open source document';
-                entry.appendChild(openHint);
-
-                sourcesContainer.appendChild(entry);
-            });
-        }
-        
         // Add message to chat display
         function addMessageToChat(message, sender, isError = false) {
             // Remove welcome screen if it exists

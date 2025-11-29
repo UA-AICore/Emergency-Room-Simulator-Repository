@@ -45,12 +45,46 @@ namespace ERSimulatorApp.Services
                     audioStream.Position = 0;
                 }
 
+                // Determine MIME type from file extension
+                string mimeType = "audio/webm"; // Default
+                string lowerFileName = fileName.ToLowerInvariant();
+                
+                if (lowerFileName.EndsWith(".webm"))
+                {
+                    mimeType = "audio/webm";
+                }
+                else if (lowerFileName.EndsWith(".mp4") || lowerFileName.EndsWith(".m4a"))
+                {
+                    mimeType = "audio/mp4";
+                }
+                else if (lowerFileName.EndsWith(".mp3") || lowerFileName.EndsWith(".mpeg"))
+                {
+                    mimeType = "audio/mpeg";
+                }
+                else if (lowerFileName.EndsWith(".wav"))
+                {
+                    mimeType = "audio/wav";
+                }
+                else if (lowerFileName.EndsWith(".ogg"))
+                {
+                    mimeType = "audio/ogg";
+                }
+
+                _logger.LogInformation("Detected MIME type: {MimeType} for file: {FileName}", mimeType, fileName);
+
                 // Create multipart form data
                 using var content = new MultipartFormDataContent();
                 
                 // Add the audio file
+                // Note: Don't set Content-Type header - let the API detect it from the file
+                // Some APIs are sensitive to Content-Type mismatches
                 var audioContent = new StreamContent(audioStream);
-                audioContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/webm");
+                // Only set Content-Type if it's a well-known format that Whisper definitely supports
+                if (mimeType == "audio/wav" || mimeType == "audio/mpeg" || mimeType == "audio/mp4")
+                {
+                    audioContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
+                }
+                // For webm, let the API auto-detect
                 content.Add(audioContent, "file", fileName);
 
                 // Add model parameter
@@ -67,6 +101,10 @@ namespace ERSimulatorApp.Services
 
                 request.Headers.Add("Authorization", $"Bearer {_apiKey}");
 
+                // Log request details
+                _logger.LogInformation("Sending audio to Whisper API: FileName={FileName}, MimeType={MimeType}, StreamLength={StreamLength}", 
+                    fileName, mimeType, audioStream.CanSeek ? audioStream.Length : -1);
+
                 // Send request
                 var response = await _httpClient.SendAsync(request, cancellationToken);
                 var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -74,17 +112,58 @@ namespace ERSimulatorApp.Services
                 if (!response.IsSuccessStatusCode)
                 {
                     _logger.LogError("Whisper API error: {StatusCode} - {Error}", response.StatusCode, responseContent);
-                    throw new HttpRequestException($"Whisper API returned {response.StatusCode}: {responseContent}");
+                    
+                    // Provide more helpful error messages
+                    string errorMessage = $"Whisper API returned {response.StatusCode}";
+                    if (response.StatusCode == System.Net.HttpStatusCode.BadRequest)
+                    {
+                        errorMessage += ": Invalid audio format or corrupted file. Please try recording again.";
+                    }
+                    else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    {
+                        errorMessage += ": Invalid API key. Please check your OpenAI API key configuration.";
+                    }
+                    else if (response.StatusCode == System.Net.HttpStatusCode.RequestEntityTooLarge)
+                    {
+                        errorMessage += ": Audio file is too large. Please record a shorter audio clip.";
+                    }
+                    else
+                    {
+                        errorMessage += $": {responseContent}";
+                    }
+                    
+                    throw new HttpRequestException(errorMessage);
                 }
 
                 // Parse response
-                using var jsonDoc = JsonDocument.Parse(responseContent);
-                var transcript = jsonDoc.RootElement.GetProperty("text").GetString() ?? string.Empty;
+                try
+                {
+                    using var jsonDoc = JsonDocument.Parse(responseContent);
+                    
+                    if (!jsonDoc.RootElement.TryGetProperty("text", out var textElement))
+                    {
+                        _logger.LogError("Whisper API response missing 'text' property. Full response: {Response}", responseContent);
+                        throw new InvalidOperationException("Whisper API response is missing the 'text' property");
+                    }
+                    
+                    var transcript = textElement.GetString() ?? string.Empty;
 
-                _logger.LogInformation("Audio transcription successful: {TranscriptPreview}...", 
-                    transcript.Substring(0, Math.Min(50, transcript.Length)));
+                    if (string.IsNullOrWhiteSpace(transcript))
+                    {
+                        _logger.LogWarning("Whisper API returned empty transcript. Response: {Response}", responseContent);
+                        throw new InvalidOperationException("Whisper API returned an empty transcript. The audio may be too quiet, too short, or contain no speech.");
+                    }
 
-                return transcript.Trim();
+                    _logger.LogInformation("Audio transcription successful: {TranscriptPreview}...", 
+                        transcript.Substring(0, Math.Min(50, transcript.Length)));
+
+                    return transcript.Trim();
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogError(ex, "Failed to parse Whisper API response. Response content: {Response}", responseContent);
+                    throw new InvalidOperationException($"Failed to parse Whisper API response: {ex.Message}", ex);
+                }
             }
             catch (Exception ex)
             {

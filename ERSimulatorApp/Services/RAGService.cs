@@ -33,17 +33,27 @@ namespace ERSimulatorApp.Services
             try
             {
                 // OpenAI-compatible chat completions request format
-                var ragRequest = new
+                // Try to request sources by including additional parameters
+                var ragRequest = new Dictionary<string, object>
                 {
-                    model = _model,
-                    messages = new[]
-                    {
-                        new { role = "user", content = prompt }
+                    { "model", _model },
+                    { "messages", new[]
+                        {
+                            new { role = "user", content = prompt }
+                        }
                     },
-                    temperature = 0.7,
-                    max_tokens = 2000
+                    { "temperature", 0.7 },
+                    { "max_tokens", 2000 }
                 };
+                
+                // Add parameters that might request sources (if supported by the RAG API)
+                // Different RAG implementations use different parameter names
+                ragRequest["include_sources"] = true;
+                ragRequest["return_sources"] = true;
+                ragRequest["include_metadata"] = true;
+                ragRequest["top_k"] = _topK; // Request top K sources
 
+                // Use default serialization (camelCase for dictionary keys)
                 var ragJson = JsonSerializer.Serialize(ragRequest);
                 var ragContent = new StringContent(ragJson, Encoding.UTF8, "application/json");
 
@@ -71,6 +81,10 @@ namespace ERSimulatorApp.Services
                 }
 
                 var ragResponseContent = await ragResponse.Content.ReadAsStringAsync();
+                
+                // Log the raw response for debugging
+                _logger.LogInformation($"RAG API raw response (first 500 chars): {ragResponseContent.Substring(0, Math.Min(500, ragResponseContent.Length))}");
+                
                 var ragData = JsonSerializer.Deserialize<OpenAIChatResponse>(ragResponseContent);
 
                 if (ragData == null || ragData.Choices == null || ragData.Choices.Count == 0 || string.IsNullOrEmpty(ragData.Choices[0].Message?.Content))
@@ -86,90 +100,10 @@ namespace ERSimulatorApp.Services
                     throw new InvalidOperationException("RAG returned empty content");
                 }
 
-                // Handle sources - check if response includes sources in metadata or separate field
-                var references = new List<SourceReference>();
-                
-                // Try to extract sources from response metadata or additional fields
-                if (ragData.Sources != null && ragData.Sources.Count > 0)
-                {
-                    // Structured sources format
-                    references = ragData.Sources
-                        .Select(source =>
-                        {
-                            var fileNameOnly = Path.GetFileName(source.Filename);
-                            var title = Path.GetFileNameWithoutExtension(fileNameOnly);
-                            return new SourceReference
-                            {
-                                Filename = source.Filename,
-                                Title = string.IsNullOrWhiteSpace(title) ? fileNameOnly : title,
-                                Preview = source.Preview,
-                                Similarity = source.Similarity
-                            };
-                        })
-                        .ToList();
-                }
-                else if (ragData.ContextPreview != null && ragData.ContextPreview.Count > 0)
-                {
-                    // Context preview format - extract filenames from preview strings
-                    var seenFiles = new Dictionary<string, (int index, string preview)>();
-                    
-                    for (int i = 0; i < ragData.ContextPreview.Count; i++)
-                    {
-                        var preview = ragData.ContextPreview[i];
-                        var match = System.Text.RegularExpressions.Regex.Match(preview, @"\(([^,]+),\s*chunk");
-                        if (match.Success)
-                        {
-                            var filename = match.Groups[1].Value.Trim();
-                            if (!seenFiles.ContainsKey(filename) || seenFiles[filename].index > i)
-                            {
-                                seenFiles[filename] = (i, preview);
-                            }
-                        }
-                    }
-                    
-                    var index = 0;
-                    foreach (var kvp in seenFiles.OrderBy(x => x.Value.index))
-                    {
-                        var filename = kvp.Key;
-                        var preview = kvp.Value.preview;
-                        var title = Path.GetFileNameWithoutExtension(filename);
-                        var similarity = Math.Max(0.5, 0.95 - (index * 0.1));
-                        
-                        references.Add(new SourceReference
-                        {
-                            Filename = filename,
-                            Title = string.IsNullOrWhiteSpace(title) ? filename : title,
-                            Preview = preview.Length > 200 ? preview.Substring(0, 200) + "..." : preview,
-                            Similarity = similarity
-                        });
-                        index++;
-                    }
-                }
-
-                _logger.LogInformation($"RAG response received with {references.Count} sources");
-
-                // Format response with sources inline for backward compatibility
-                var formattedResponse = answer;
-                if (references.Count > 0)
-                {
-                    formattedResponse += "\n\n📚 Sources:\n";
-                    foreach (var reference in references)
-                    {
-                        if (reference.Similarity > 0)
-                        {
-                            formattedResponse += $"• {reference.Title} (match: {reference.Similarity:P0})\n";
-                        }
-                        else
-                        {
-                            formattedResponse += $"• {reference.Title}\n";
-                        }
-                    }
-                }
-
                 return new LLMResponse
                 {
-                    Response = formattedResponse,
-                    Sources = references ?? new List<SourceReference>(),
+                    Response = answer,
+                    Sources = new List<SourceReference>(),
                     IsFallback = false
                 };
             }

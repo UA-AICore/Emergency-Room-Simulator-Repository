@@ -85,18 +85,7 @@ namespace ERSimulatorApp.Controllers
                     SessionId = request.SessionId,
                     Timestamp = endTime,
                     IsFallback = aiResponse.IsFallback,
-                    Sources = aiResponse.Sources
-                        .Select(source => new ChatSourceLink
-                        {
-                            Title = string.IsNullOrWhiteSpace(source.Title)
-                                ? Path.GetFileName(source.Filename) ?? "Source"
-                                : source.Title,
-                            Preview = source.Preview,
-                            Similarity = source.Similarity,
-                            Url = BuildSourceUrl(source.Filename)
-                        })
-                        .Where(link => !string.IsNullOrWhiteSpace(link.Url))
-                        .ToList()
+                    Sources = new List<ChatSourceLink>()
                 };
 
                 _logger.LogInformation($"Chat response generated in {responseTime.TotalMilliseconds}ms");
