@@ -1,4 +1,4 @@
-# Build results
+# ===== Visual Studio / Rider / .NET Build Artifacts =====
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/
@@ -8,57 +8,16 @@ x86/
 [Ww][Ii][Nn]32/
 [Aa][Rr][Mm]/
 [Aa][Rr][Mm]64/
+build/
 bld/
 [Bb]in/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
-
-# Visual Studio cache/options directory
 .vs/
-
-# Visual Studio Code
 .vscode/
-
-# JetBrains Rider
 .idea/
 *.sln.iml
-
-# User-specific files
-*.rsuser
-*.suo
-*.user
-*.userosscache
-*.sln.docstates
-
-# Build results
-[Dd]ebug/
-[Dd]ebugPublic/
-[Rr]elease/
-[Rr]eleases/
-x64/
-x86/
-build/
-bld/
-[Bb]in/
-[Oo]bj/
-
-# MSTest test Results
-[Tt]est[Rr]esult*/
-[Bb]uild[Ll]og.*
-
-# .NET Core
-project.lock.json
-project.fragment.lock.json
-artifacts/
-
-# ASP.NET Scaffolding
-ScaffoldingReadMe.txt
-
-# StyleCop
-StyleCopReport.xml
-
-# Files built by Visual Studio
 *_i.c
 *_p.c
 *_h.h
@@ -79,55 +38,41 @@ StyleCopReport.xml
 *.tmp
 *.tmp_proj
 *_wpftmp.csproj
-*.log
 *.vspscc
 *.vssscc
 .builds
 *.pidb
 *.svclog
 *.scc
-
-# Published output
 publish/
 *.zip
 
-# Runtime files
-chat_logs.txt
+# ===== Log files =====
 *.log
+chat_logs.txt
 
-# Environment files
+# ===== Environment files =====
 .env
 .env.local
 .env.*.local
 
-# macOS
-.DS_Store
-
-# Data directory (runtime)
-data/
-
-# Temporary files
-*.tmp
-*.temp
-*.swp
-*~
-
-
-# Python cache
+# ===== Python artifacts =====
 __pycache__/
 *.pyc
-
-# Virtual environments
 venv/
 .venv/
 
-# Environment files (real secrets)
-.env
-
-# RAG vector DB / index folders (do NOT commit these)
+# ===== RAG vector DB (do NOT commit) =====
 rag_backend/chroma_db/
 chroma_db/
 vector_store/
 db/
 index/
 *.sqlite
+
+# ===== macOS artifact =====
+.DS_Store
+
+# ===== ALLOW DATA FOLDER (IMPORTANT) =====
+# We removed "data/" so rag_backend/data/ will be uploaded
+
