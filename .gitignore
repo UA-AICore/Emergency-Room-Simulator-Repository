@@ -113,3 +113,21 @@ data/
 *~
 
 
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment files (real secrets)
+.env
+
+# RAG vector DB / index folders (do NOT commit these)
+rag_backend/chroma_db/
+chroma_db/
+vector_store/
+db/
+index/
+*.sqlite
