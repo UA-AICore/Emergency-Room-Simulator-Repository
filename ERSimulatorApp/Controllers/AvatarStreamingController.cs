@@ -35,7 +35,7 @@ namespace ERSimulatorApp.Controllers
             var configuredPath = configuration["RAG:SourceDocumentsPath"];
             if (string.IsNullOrWhiteSpace(configuredPath))
             {
-                _sourceDocumentsPath = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", "rag-local", "sample_data"));
+                _sourceDocumentsPath = Path.GetFullPath(Path.Combine(environment.ContentRootPath, "..", "rag_backend", "data", "trauma_pdfs"));
             }
             else
             {

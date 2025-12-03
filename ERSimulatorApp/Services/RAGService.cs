@@ -16,7 +16,6 @@ namespace ERSimulatorApp.Services
         private readonly string _apiKey;
         private readonly string _model;
         private readonly int _topK;
-        private readonly string _localRagUrl;
 
         public RAGService(HttpClient httpClient, ILogger<RAGService> logger, IConfiguration configuration)
         {
@@ -26,7 +25,6 @@ namespace ERSimulatorApp.Services
             _apiKey = configuration["RAG:ApiKey"] ?? string.Empty;
             _model = configuration["RAG:Model"] ?? "meta-llama/Llama-3.2-1B-instruct";
             _topK = configuration.GetValue<int?>("RAG:TopK") ?? 5;
-            _localRagUrl = configuration["RAG:LocalRagUrl"] ?? "http://127.0.0.1:5001/api/ask";
         }
 
         private const string FallbackMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
@@ -427,100 +425,6 @@ namespace ERSimulatorApp.Services
             }
         }
 
-        /// <summary>
-        /// Infers sources by querying the local RAG server with the same question
-        /// </summary>
-        private async Task<List<SourceReference>> InferSourcesFromLocalRagAsync(string prompt)
-        {
-            var references = new List<SourceReference>();
-            
-            try
-            {
-                // Query local RAG server to get source documents
-                var localRagRequest = new
-                {
-                    q = prompt
-                };
-
-                var localRagJson = JsonSerializer.Serialize(localRagRequest);
-                var localRagContent = new StringContent(localRagJson, Encoding.UTF8, "application/json");
-
-                var localRagRequestMessage = new HttpRequestMessage(HttpMethod.Post, _localRagUrl)
-                {
-                    Content = localRagContent
-                };
-
-                // Use a shorter timeout for source inference (we don't need the full response)
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                var localRagResponse = await _httpClient.SendAsync(localRagRequestMessage, cts.Token);
-
-                if (localRagResponse.IsSuccessStatusCode)
-                {
-                    var localRagResponseContent = await localRagResponse.Content.ReadAsStringAsync();
-                    var localRagData = JsonSerializer.Deserialize<LocalRAGResponse>(localRagResponseContent);
-
-                    if (localRagData?.Sources != null && localRagData.Sources.Count > 0)
-                    {
-                        references = localRagData.Sources
-                            .Select(source =>
-                            {
-                                var fileNameOnly = Path.GetFileName(source.Filename);
-                                var title = Path.GetFileNameWithoutExtension(fileNameOnly);
-                                return new SourceReference
-                                {
-                                    Filename = source.Filename,
-                                    Title = string.IsNullOrWhiteSpace(title) ? fileNameOnly : title,
-                                    Preview = source.Preview ?? string.Empty,
-                                    Similarity = source.Similarity
-                                };
-                            })
-                            .ToList();
-                    }
-                }
-                else
-                {
-                    _logger.LogWarning("Local RAG server returned status {StatusCode} when inferring sources", localRagResponse.StatusCode);
-                }
-            }
-            catch (TaskCanceledException)
-            {
-                _logger.LogWarning("Local RAG server timeout when inferring sources");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error querying local RAG server for source inference");
-            }
-
-            return references;
-        }
-    }
-
-    // Local RAG server response format
-    public class LocalRAGResponse
-    {
-        [JsonPropertyName("answer")]
-        public string? Answer { get; set; }
-        
-        [JsonPropertyName("model")]
-        public string? Model { get; set; }
-        
-        [JsonPropertyName("rag_used")]
-        public bool? RagUsed { get; set; }
-        
-        [JsonPropertyName("sources")]
-        public List<LocalRAGSource>? Sources { get; set; }
-    }
-
-    public class LocalRAGSource
-    {
-        [JsonPropertyName("filename")]
-        public string Filename { get; set; } = string.Empty;
-        
-        [JsonPropertyName("similarity")]
-        public double Similarity { get; set; }
-        
-        [JsonPropertyName("preview")]
-        public string? Preview { get; set; }
     }
 
     // OpenAI-compatible chat completions response
