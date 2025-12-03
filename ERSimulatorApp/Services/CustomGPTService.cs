@@ -24,11 +24,12 @@ namespace ERSimulatorApp.Services
 
         public CustomGPTService(ILogger<CustomGPTService>? logger = null)
         {
-            // Use /app/data for persistent storage (required for container deployments)
+            // Use /app/data directory for persistent data (required for container deployments)
             var dataDir = "/app/data";
             if (!Directory.Exists(dataDir))
             {
-                Directory.CreateDirectory(dataDir);
+                // Fallback to current directory for local development
+                dataDir = Directory.GetCurrentDirectory();
             }
             _charactersFilePath = Path.Combine(dataDir, "custom_gpt_characters.json");
             _logger = logger;

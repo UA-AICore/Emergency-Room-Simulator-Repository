@@ -51,6 +51,11 @@ namespace ERSimulatorApp.Services
                 _logger.LogInformation("Raw RAG response received from knowledge base (first 300 chars): {RAGPreview}", 
                     medicalResponse.Response.Substring(0, Math.Min(300, medicalResponse.Response.Length)));
                 _logger.LogInformation("RAG response contains {SourceCount} source references", medicalResponse.Sources?.Count ?? 0);
+                if (medicalResponse.Sources != null && medicalResponse.Sources.Count > 0)
+                {
+                    _logger.LogInformation("Source titles in RAGWithPersonalityService: {Titles}", 
+                        string.Join(", ", medicalResponse.Sources.Select(s => s.Title)));
+                }
 
                 // Add personality layer using Character Gateway
                 // This will transform the RAG medical information into Dr. Dexter's teaching style

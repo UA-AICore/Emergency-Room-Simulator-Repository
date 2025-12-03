@@ -4,9 +4,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.IO;
-using System.Linq;
 
 namespace ERSimulatorApp.Controllers
 {
@@ -16,19 +16,22 @@ namespace ERSimulatorApp.Controllers
     {
         private readonly ILLMService _llmService;
         private readonly ChatLogService _logService;
+        private readonly IWhisperService _whisperService;
         private readonly ILogger<ChatController> _logger;
         private readonly string _sourceDocumentsPath;
         private const string OfflineMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
 
         public ChatController(
             ILLMService llmService, 
-            ChatLogService logService, 
+            ChatLogService logService,
+            IWhisperService whisperService,
             ILogger<ChatController> logger,
             IConfiguration configuration,
             IWebHostEnvironment environment)
         {
             _llmService = llmService;
             _logService = logService;
+            _whisperService = whisperService;
             _logger = logger;
             var configuredPath = configuration["RAG:SourceDocumentsPath"];
             if (string.IsNullOrWhiteSpace(configuredPath))
@@ -63,6 +66,15 @@ namespace ERSimulatorApp.Controllers
 
                 // Get AI response
                 var aiResponse = await _llmService.GetResponseAsync(request.Message);
+                
+                // Log sources received from LLM service
+                _logger.LogInformation("ChatController received response with {SourceCount} sources from LLM service", 
+                    aiResponse.Sources?.Count ?? 0);
+                if (aiResponse.Sources != null && aiResponse.Sources.Count > 0)
+                {
+                    _logger.LogInformation("Source titles in ChatController: {Titles}", 
+                        string.Join(", ", aiResponse.Sources.Select(s => s.Title)));
+                }
                 
                 var endTime = DateTime.UtcNow;
                 var responseTime = endTime - startTime;
@@ -248,6 +260,58 @@ namespace ERSimulatorApp.Controllers
                 ".htm" => "text/html",
                 _ => "application/octet-stream"
             };
+        }
+
+        /// <summary>
+        /// Transcribe audio using Whisper API for the main chat page
+        /// </summary>
+        [HttpPost("whisper/transcribe")]
+        public async Task<IActionResult> TranscribeAudio([FromForm] IFormFile audioFile)
+        {
+            try
+            {
+                if (audioFile == null || audioFile.Length == 0)
+                {
+                    return BadRequest(new { error = "No audio file provided" });
+                }
+
+                // Validate file size
+                if (audioFile.Length < 1024)
+                {
+                    return BadRequest(new { error = "Audio file is too small. Please record at least 1 second of audio." });
+                }
+                if (audioFile.Length > 25 * 1024 * 1024)
+                {
+                    return BadRequest(new { error = "Audio file is too large. Maximum size is 25MB." });
+                }
+
+                _logger.LogInformation("Transcribing audio for chat page: {FileName}, Size: {Size} bytes", 
+                    audioFile.FileName, audioFile.Length);
+
+                var fileName = audioFile.FileName;
+                if (string.IsNullOrWhiteSpace(fileName) || !fileName.Contains('.'))
+                {
+                    fileName = "audio.webm";
+                }
+
+                using var audioStream = audioFile.OpenReadStream();
+                var transcript = await _whisperService.TranscribeAudioAsync(audioStream, fileName);
+
+                if (string.IsNullOrWhiteSpace(transcript))
+                {
+                    return BadRequest(new { error = "Could not transcribe audio. Please try recording again." });
+                }
+
+                _logger.LogInformation("Audio transcribed successfully: {TranscriptPreview}...", 
+                    transcript.Substring(0, Math.Min(50, transcript.Length)));
+
+                return Ok(new { transcription = transcript, text = transcript });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error transcribing audio for chat page");
+                return StatusCode(500, new { error = ex.Message });
+            }
         }
     }
 }

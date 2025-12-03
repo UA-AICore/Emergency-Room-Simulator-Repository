@@ -1,10 +1,20 @@
 using ERSimulatorApp.Services;
 using Newtonsoft.Json.Serialization;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Http;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Forwarded headers will be configured inline in the middleware pipeline
+// Add forwarded headers middleware to handle reverse proxy scenarios
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
+                              ForwardedHeaders.XForwardedProto;
+    // Honor path base from reverse proxy
+    options.ForwardedPrefixHeaderName = "X-Forwarded-Prefix";
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // Add services to the container.
 builder.Services.AddRazorPages();
@@ -40,11 +50,7 @@ builder.Services.AddHttpClient<ICharacterGateway, CharacterGatewayService>(clien
 // Register the combined service with personality layer
 builder.Services.AddTransient<ILLMService, RAGWithPersonalityService>();
 
-builder.Services.AddSingleton<ChatLogService>(sp =>
-{
-    var logger = sp.GetRequiredService<ILogger<ChatLogService>>();
-    return new ChatLogService(logger);
-});
+builder.Services.AddSingleton<ChatLogService>();
 builder.Services.AddSingleton<ICustomGPTService>(sp =>
 {
     var logger = sp.GetRequiredService<ILogger<CustomGPTService>>();
@@ -73,6 +79,19 @@ builder.Services.AddHttpClient<IWhisperService, WhisperService>(client =>
     client.Timeout = TimeSpan.FromSeconds(whisperTimeout);
 });
 
+// Register Patient Streaming service (for patient avatar)
+var patientTimeout = builder.Configuration.GetValue<int?>("HeyGenPatient:TimeoutSeconds") ?? 120;
+builder.Services.AddHttpClient<IPatientStreamingService, PatientStreamingService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(patientTimeout);
+});
+
+// Register Patient Personality service (OpenAI-based, no RAG)
+builder.Services.AddHttpClient<IPatientPersonalityService, PatientPersonalityService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(openAITimeout);
+});
+
 // Add CORS for development
 builder.Services.AddCors(options =>
 {
@@ -87,34 +106,35 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // Use forwarded headers middleware (must be early in pipeline)
-app.UseForwardedHeaders(new ForwardedHeadersOptions
-{
-    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
+app.UseForwardedHeaders();
 
-// Custom middleware to handle X-Forwarded-Prefix header and set path base
-// This must be done BEFORE UseStaticFiles() and other middleware
-app.Use(async (ctx, next) =>
+// Configure path base from X-Forwarded-Prefix header or environment variable
+// This middleware extracts the path base and sets it for static files and routing
+app.Use(async (context, next) =>
 {
-    // Read X-Forwarded-Prefix header from reverse proxy
-    var prefixHeader = ctx.Request.Headers["X-Forwarded-Prefix"].FirstOrDefault();
-    if (!string.IsNullOrEmpty(prefixHeader))
+    // First, try to get path base from X-Forwarded-Prefix header (from reverse proxy)
+    var forwardedPrefix = context.Request.Headers["X-Forwarded-Prefix"].FirstOrDefault();
+    
+    // If not in header, try environment variable
+    if (string.IsNullOrEmpty(forwardedPrefix))
     {
-        // Normalize the prefix (ensure it starts with / and doesn't end with /)
-        var normalizedPrefix = prefixHeader.Trim();
-        if (!normalizedPrefix.StartsWith("/"))
+        forwardedPrefix = builder.Configuration["ASPNETCORE_PATHBASE"];
+    }
+    
+    // Set the path base if we have one
+    if (!string.IsNullOrEmpty(forwardedPrefix))
+    {
+        // Ensure path base starts with / and doesn't end with /
+        var pathBase = forwardedPrefix.TrimEnd('/');
+        if (!pathBase.StartsWith('/'))
         {
-            normalizedPrefix = "/" + normalizedPrefix;
-        }
-        if (normalizedPrefix.EndsWith("/") && normalizedPrefix.Length > 1)
-        {
-            normalizedPrefix = normalizedPrefix.TrimEnd('/');
+            pathBase = "/" + pathBase;
         }
         
-        // Set PathBase on the request context
-        // This ensures static files, URL generation, and routing all use the correct base path
-        ctx.Request.PathBase = new PathString(normalizedPrefix);
+        // Set the path base for this request (this affects static files, routing, and Razor views)
+        context.Request.PathBase = new PathString(pathBase);
     }
+    
     await next();
 });
 
@@ -127,13 +147,7 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-
-// Configure static files to respect PathBase set by middleware
-app.UseStaticFiles(new StaticFileOptions
-{
-    // Static files will automatically use Request.PathBase set by our middleware
-    // This ensures files are served from the correct path (e.g., /er-simulator/css/site.css)
-});
+app.UseStaticFiles();
 
 app.UseRouting();
 

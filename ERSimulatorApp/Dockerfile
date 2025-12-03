@@ -13,5 +13,3 @@ ENV ASPNETCORE_URLS=http://+:8080
 # Set the command to run your app
 ENTRYPOINT ["dotnet", "ERSimulatorApp.dll"]
 
-
-

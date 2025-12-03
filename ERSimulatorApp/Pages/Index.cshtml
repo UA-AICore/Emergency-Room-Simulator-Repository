@@ -6,6 +6,13 @@
 
 <style>
     /* Add custom CSS import */
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    .text-danger.pulse {
+        animation: pulse 1s infinite;
+    }
 </style>
 <link rel="stylesheet" href="~/css/custom.css" />
 
@@ -66,6 +73,9 @@
                         <input type="text" id="messageInput" class="form-control" 
                                placeholder="Ask about emergency medicine, trauma care, or medical protocols..." 
                                maxlength="500">
+                        <button class="btn btn-outline-primary" type="button" id="voiceButton" title="Record voice message">
+                            <i class="fas fa-microphone"></i>
+                        </button>
                         <button class="btn btn-send" type="button" id="sendButton">
                             <i class="fas fa-paper-plane me-2"></i>Send
                         </button>
@@ -78,6 +88,12 @@
                         <small class="text-muted">
                             <i class="fas fa-book-medical me-1"></i>
                             RAG-powered with trauma documents
+                        </small>
+                    </div>
+                    <div id="voiceStatus" class="mt-2" style="display: none;">
+                        <small class="text-warning">
+                            <i class="fas fa-circle text-danger me-1" style="animation: pulse 1s infinite;"></i>
+                            <span id="voiceStatusText">Recording...</span>
                         </small>
                     </div>
                 </div>
@@ -120,7 +136,7 @@
                         Reference Sources
                     </h5>
                     <p class="text-white-50 small mb-0">
-                        Materials referenced by the AI in its answer.
+                        Click to open the material the AI used in its answer.
                     </p>
                 </div>
                 <div class="sources-body" id="sourcesContainer">
@@ -208,7 +224,16 @@
         const chatMessages = document.getElementById('chatMessages');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
+        const voiceButton = document.getElementById('voiceButton');
+        const voiceStatus = document.getElementById('voiceStatus');
+        const voiceStatusText = document.getElementById('voiceStatusText');
         const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        
+        // Audio recording state
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+        let audioStream = null;
         const sourcesContainer = document.getElementById('sourcesContainer');
         const quizModal = new bootstrap.Modal(document.getElementById('quizModal'));
         const quizForm = document.getElementById('quizForm');
@@ -238,7 +263,7 @@
             loadingModal.show();
             
             try {
-                const response = await fetch(`${window.APP_BASE_PATH || ''}/api/chat/send`, {
+                const response = await fetch('/api/chat/send', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -332,13 +357,22 @@
                 const titleRow = document.createElement('div');
                 titleRow.className = 'd-flex align-items-center justify-content-between gap-2 mb-2';
 
-                // Always show title as plain text (non-clickable)
-                const titleSpan = document.createElement('span');
-                titleSpan.className = 'source-link';
-                titleSpan.style.cursor = 'default';
-                titleSpan.style.color = 'inherit';
-                titleSpan.textContent = source.title || 'Reference material';
-                titleRow.appendChild(titleSpan);
+                if (source.url) {
+                    const titleLink = document.createElement('a');
+                    titleLink.className = 'source-link';
+                    titleLink.href = source.url;
+                    titleLink.target = '_blank';
+                    titleLink.rel = 'noopener noreferrer';
+                    titleLink.textContent = source.title || 'Reference material';
+                    titleRow.appendChild(titleLink);
+                } else {
+                    // Show title as plain text if no URL
+                    const titleSpan = document.createElement('span');
+                    titleSpan.className = 'source-link';
+                    titleSpan.style.cursor = 'default';
+                    titleSpan.textContent = source.title || 'Reference material';
+                    titleRow.appendChild(titleSpan);
+                }
                 
                 entry.appendChild(titleRow);
 
@@ -349,8 +383,13 @@
                     entry.appendChild(preview);
                 }
 
-                // Sources are displayed for reference only - no links to open documents
-                // Removed "Open source document" hint
+                // Only show "Open source document" hint if there's a URL
+                if (source.url) {
+                    const openHint = document.createElement('div');
+                    openHint.className = 'source-open-hint';
+                    openHint.innerHTML = '<i class="fas fa-arrow-up-right-from-square me-1"></i>Open source document';
+                    entry.appendChild(openHint);
+                }
 
                 sourcesContainer.appendChild(entry);
             });
@@ -398,6 +437,161 @@
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
         
+        // Voice recording functions
+        async function startRecording() {
+            try {
+                if (!window.MediaRecorder) {
+                    addMessageToChat('Voice recording is not supported in this browser. Please use Chrome, Edge, or Firefox.', 'ai', true);
+                    return;
+                }
+
+                audioStream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        channelCount: 1,
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    } 
+                });
+
+                // Try to use webm, fallback to browser default
+                let mimeType = '';
+                const types = ['audio/webm', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus'];
+                for (const type of types) {
+                    if (MediaRecorder.isTypeSupported(type)) {
+                        mimeType = type;
+                        break;
+                    }
+                }
+
+                mediaRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : {});
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data && event.data.size > 0) {
+                        audioChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+                    await sendAudioForTranscription(audioBlob);
+                    
+                    // Stop all tracks
+                    if (audioStream) {
+                        audioStream.getTracks().forEach(track => track.stop());
+                        audioStream = null;
+                    }
+                };
+
+                mediaRecorder.start(1000); // Collect data every second
+                isRecording = true;
+                voiceButton.classList.remove('btn-outline-primary');
+                voiceButton.classList.add('btn-danger');
+                voiceButton.innerHTML = '<i class="fas fa-stop"></i>';
+                voiceStatus.style.display = 'block';
+                voiceStatusText.textContent = 'Recording... Click to stop';
+                messageInput.disabled = true;
+                sendButton.disabled = true;
+            } catch (error) {
+                console.error('Error starting recording:', error);
+                addMessageToChat('Could not access microphone. Please check permissions.', 'ai', true);
+                stopRecording();
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                voiceButton.classList.remove('btn-danger');
+                voiceButton.classList.add('btn-outline-primary');
+                voiceButton.innerHTML = '<i class="fas fa-microphone"></i>';
+                voiceStatusText.textContent = 'Processing audio...';
+            }
+        }
+
+        async function sendAudioForTranscription(audioBlob) {
+            try {
+                if (audioBlob.size < 1024) {
+                    addMessageToChat('Audio recording is too short. Please record at least 1 second of audio.', 'ai', true);
+                    voiceStatus.style.display = 'none';
+                    messageInput.disabled = false;
+                    sendButton.disabled = false;
+                    return;
+                }
+
+                if (audioBlob.size > 25 * 1024 * 1024) {
+                    addMessageToChat('Audio recording is too large. Maximum size is 25MB.', 'ai', true);
+                    voiceStatus.style.display = 'none';
+                    messageInput.disabled = false;
+                    sendButton.disabled = false;
+                    return;
+                }
+
+                // Determine file extension
+                let fileExtension = 'webm';
+                if (audioBlob.type.includes('ogg')) {
+                    fileExtension = 'ogg';
+                } else if (audioBlob.type.includes('mp4') || audioBlob.type.includes('mpeg')) {
+                    fileExtension = 'mp4';
+                } else if (audioBlob.type.includes('wav')) {
+                    fileExtension = 'wav';
+                }
+
+                const fileName = `recording.${fileExtension}`;
+                const formData = new FormData();
+                formData.append('audioFile', audioBlob, fileName);
+
+                voiceStatusText.textContent = 'Transcribing audio...';
+
+                const response = await fetch('/api/chat/whisper/transcribe', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                    throw new Error(errorData.error || `HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                const transcript = data.transcription || data.text || '';
+
+                if (!transcript.trim()) {
+                    addMessageToChat('Could not transcribe audio. Please try recording again.', 'ai', true);
+                    voiceStatus.style.display = 'none';
+                    messageInput.disabled = false;
+                    sendButton.disabled = false;
+                    return;
+                }
+
+                // Set the transcribed text in the input and send it
+                messageInput.value = transcript;
+                voiceStatus.style.display = 'none';
+                messageInput.disabled = false;
+                sendButton.disabled = false;
+                
+                // Automatically send the transcribed message
+                sendMessage();
+            } catch (error) {
+                console.error('Error transcribing audio:', error);
+                addMessageToChat(`Error transcribing audio: ${error.message}`, 'ai', true);
+                voiceStatus.style.display = 'none';
+                messageInput.disabled = false;
+                sendButton.disabled = false;
+            }
+        }
+
+        // Toggle recording
+        voiceButton.addEventListener('click', () => {
+            if (!isRecording) {
+                startRecording();
+            } else {
+                stopRecording();
+            }
+        });
+
         // Event listeners
         sendButton.addEventListener('click', sendMessage);
         
@@ -445,7 +639,7 @@
             submitQuizButton.disabled = true;
 
             try {
-                const response = await fetch(`${window.APP_BASE_PATH || ''}/api/quiz/generate`, {
+                const response = await fetch('/api/quiz/generate', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

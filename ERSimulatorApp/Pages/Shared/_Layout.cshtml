@@ -22,7 +22,10 @@
                 <div class="navbar-collapse collapse d-sm-inline-flex justify-content-between">
                     <ul class="navbar-nav flex-grow-1">
                         <li class="nav-item">
-                            <a class="nav-link text-dark" asp-area="" asp-page="/Avatar">Avatar</a>
+                            <a class="nav-link text-dark" asp-area="" asp-page="/Avatar">Dr. Dexter</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link text-dark" asp-area="" asp-page="/Patient">Patient</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link text-dark" asp-area="" asp-page="/Index">Chat</a>
@@ -51,12 +54,6 @@
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
-    
-    @* Set base path for API calls to work with reverse proxy path base *@
-    <script>
-        // Get the base path from the current page URL or use empty string for root
-        window.APP_BASE_PATH = '@Context.Request.PathBase';
-    </script>
 
     @await RenderSectionAsync("Scripts", required: false)
 </body>

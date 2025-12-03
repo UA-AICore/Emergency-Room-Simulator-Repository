@@ -77,8 +77,8 @@
                     </div>
                     <div class="mt-2 d-flex justify-content-between align-items-center">
                         <small class="text-muted">
-                            <i class="fas fa-microphone me-1"></i>
-                            Type your question or click Voice button to speak
+                            <i class="fas fa-keyboard me-1"></i>
+                            Type or <i class="fas fa-microphone me-1"></i> speak your question
                         </small>
                         <small class="text-muted">
                             <i class="fas fa-video me-1"></i>
@@ -127,7 +127,7 @@
     // ============================================
     // Configuration & State
     // ============================================
-    const API_BASE = `${window.APP_BASE_PATH || ''}/api/avatar/v2/streaming`;
+    const API_BASE = '/api/avatar/v2/streaming';
     let liveKitRoom = null;
     let sessionData = null;
     let streamingToken = null; // Cache the token used to create the session
@@ -209,54 +209,13 @@
     let audioStream = null;
 
     // ============================================
-    // Browser Speech Recognition (Web Speech API)
+    // Browser Speech Recognition (Web Speech API) - DISABLED
+    // Using Whisper instead via MediaRecorder + backend API
     // ============================================
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let recognition = null;
-
-    if (SpeechRecognition) {
-        try {
-            recognition = new SpeechRecognition();
-            recognition.lang = 'en-US';
-            recognition.interimResults = false;
-            recognition.maxAlternatives = 1;
-
-            recognition.addEventListener('result', (event) => {
-                const transcript = event.results[0][0].transcript;
-                console.log('[STT] Heard:', transcript);
-
-                // Reuse existing text chat pipeline
-                elements.messageInput.value = transcript;
-                if (isSessionActive && transcript && transcript.trim()) {
-                    sendMessage();
-                }
-            });
-
-            recognition.addEventListener('end', () => {
-                console.log('[STT] Recognition ended');
-                elements.recordButton.disabled = false;
-                elements.recordButton.innerHTML = '<i class="fas fa-microphone me-2"></i>Voice';
-                elements.recordButton.classList.remove('btn-danger');
-                elements.recordButton.classList.add('btn-info');
-                elements.recordingStatus.hidden = true;
-                if (isSessionActive) {
-                    updateStatus('Connected', 'success');
-                }
-            });
-
-            recognition.addEventListener('error', (event) => {
-                console.error('[STT] Recognition error:', event.error);
-                addMessage('System', `Speech recognition error: ${event.error}`, true);
-            });
-
-            console.log('[STT] Web Speech API initialized');
-        } catch (err) {
-            console.warn('[STT] Failed to initialize Web Speech API:', err);
-            recognition = null;
-        }
-    } else {
-        console.log('[STT] Web Speech API not supported in this browser');
-    }
+    // Web Speech API is disabled - we use Whisper for better accuracy
+    let recognition = null; // Always null - Web Speech API not used
+    
+    console.log('[RECORD] Using Whisper for speech-to-text (Web Speech API disabled)');
 
     // ============================================
     // DOM Elements
@@ -680,7 +639,7 @@
                 addMessage('System', `Note: Initial greeting failed (${error.message}). The avatar may appear static until you send a message.`, false);
             }
 
-            // Step 4: Enable UI (Voice only - text input disabled)
+            // Step 4: Enable UI
             isSessionActive = true;
             elements.messageInput.disabled = false;
             elements.sendButton.disabled = false;
@@ -847,13 +806,14 @@
 
     async function startRecording() {
         try {
+            console.log('[RECORD] ===== USING WHISPER FOR SPEECH-TO-TEXT =====');
             // Check if MediaRecorder is supported
             if (!window.MediaRecorder) {
                 throw new Error('MediaRecorder API is not supported in this browser. Please use Chrome, Edge, or Firefox.');
             }
 
             // Request microphone access
-            console.log('[RECORD] Requesting microphone access...');
+            console.log('[RECORD] Requesting microphone access for Whisper transcription...');
             audioStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
                     channelCount: 1,
@@ -981,6 +941,7 @@
     }
 
     async function sendAudio(audioBlob) {
+        console.log('[AUDIO] ===== SENDING AUDIO TO WHISPER FOR TRANSCRIPTION =====');
         if (!isSessionActive || !sessionData) {
             addMessage('System', 'Session not active. Please start a session first.', true);
             elements.recordButton.disabled = false;
@@ -994,9 +955,24 @@
             return;
         }
 
+        // Validate audio blob size (minimum 1KB, maximum 25MB)
+        if (audioBlob.size < 1024) {
+            console.error('[AUDIO] Audio blob too small:', audioBlob.size, 'bytes');
+            addMessage('System', 'Audio recording is too short. Please record at least 1 second of audio.', true);
+            elements.recordButton.disabled = false;
+            return;
+        }
+
+        if (audioBlob.size > 25 * 1024 * 1024) {
+            console.error('[AUDIO] Audio blob too large:', audioBlob.size, 'bytes');
+            addMessage('System', 'Audio recording is too large. Maximum size is 25MB.', true);
+            elements.recordButton.disabled = false;
+            return;
+        }
+
         try {
-            showLoading('Processing audio...');
-            updateStatus('Sending audio...', 'warning');
+            showLoading('Processing audio with Whisper...');
+            updateStatus('Sending audio to Whisper...', 'warning');
             
             // Determine file extension based on blob type
             let fileExtension = 'webm';
@@ -1117,27 +1093,8 @@
     }
 
     function toggleRecording() {
-        // Prefer browser speech recognition if available
-        if (recognition) {
-            console.log('[STT] Using Web Speech API for speech-to-text');
-            try {
-                elements.recordButton.disabled = true;
-                elements.recordButton.innerHTML = '<i class="fas fa-microphone me-2"></i>Listening...';
-                elements.recordButton.classList.remove('btn-info');
-                elements.recordButton.classList.add('btn-danger');
-                elements.recordingStatus.hidden = false;
-                updateStatus('Listening...', 'warning');
-                recognition.start();
-            } catch (err) {
-                console.error('[STT] Error starting recognition, falling back to MediaRecorder:', err);
-                // Fall through to existing MediaRecorder path
-            }
-
-            // If recognition started successfully, stop here
-            return;
-        }
-
-        // Fallback: existing MediaRecorder + Whisper pipeline
+        // Use MediaRecorder + Whisper pipeline (preferred method)
+        console.log('[RECORD] Toggling Whisper audio recording...');
         if (!isRecording) {
             startRecording();
         } else {
@@ -1181,8 +1138,11 @@
     console.log('[INIT] Use checkVideoState() in console to debug video element');
     console.log('[INIT] Use forceVideoVisible() in console to force video visibility for testing');
     
-    // API endpoint availability will be verified when user clicks "Start Session"
-    // Removed OPTIONS check to avoid 405 errors - actual POST requests work correctly
+    // Verify API endpoint is reachable
+    console.log('[INIT] Testing API endpoint availability...');
+    fetch(`${API_BASE}/session/create`, { method: 'OPTIONS' })
+        .then(() => console.log('[INIT] API endpoint is reachable'))
+        .catch(err => console.warn('[INIT] API endpoint test failed (this is OK):', err));
     
     // Periodically check video state (for debugging)
     setInterval(() => {
@@ -1197,3 +1157,4 @@
 })();
 </script>
 }
+

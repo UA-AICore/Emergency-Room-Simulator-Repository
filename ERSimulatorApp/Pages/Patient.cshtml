@@ -1,0 +1,785 @@
+@page
+@model ERSimulatorApp.Pages.PatientModel
+@{
+    ViewData["Title"] = "Patient";
+}
+
+<link rel="stylesheet" href="~/css/custom.css" />
+<style>
+    @@keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    .fa-circle[style*="animation"] {
+        display: inline-block;
+    }
+</style>
+
+<div class="container-fluid h-100 py-4">
+    <div class="row h-100 g-4">
+        <!-- Main Avatar Area -->
+        <div class="col-lg-12 d-flex flex-column">
+            <div class="chat-container flex-grow-1 d-flex flex-column">
+                <!-- Header -->
+                <div class="chat-header">
+                    <h4 class="mb-2">
+                        <i class="fas fa-user me-2"></i>
+                        Patient Avatar
+                        <span class="badge bg-light text-dark ms-2" id="statusBadge">
+                            <i class="fas fa-circle text-secondary"></i> Ready
+                        </span>
+                    </h4>
+                    <small class="text-white-50">
+                        <i class="fas fa-id-card me-1"></i>
+                        Session: <span id="sessionIdDisplay">-</span>
+                    </small>
+                </div>
+                
+                <!-- Video Container -->
+                <div class="avatar-video-container position-relative" style="background: #000; min-height: 500px; display: flex; align-items: center; justify-content: center;">
+                    <video id="avatarVideo" autoplay playsinline muted style="width: 100%; max-width: 800px; border: 1px solid #ccc; background:#000;" hidden></video>
+                    <audio id="avatarAudio" autoplay volume="1.0"></audio>
+                    <div id="placeholder" class="text-center text-white p-5">
+                        <i class="fas fa-user fa-5x mb-4" style="opacity: 0.5;"></i>
+                        <h5>Patient Avatar</h5>
+                        <p class="text-white-50">Click "Start Session" to begin your conversation</p>
+                    </div>
+                    <div id="loading" class="text-center text-white p-5" hidden>
+                        <div class="spinner-border text-light mb-3" role="status"></div>
+                        <p id="loadingText">Connecting...</p>
+                    </div>
+                </div>
+                
+                <!-- Chat History -->
+                <div class="chat-messages" id="chatHistory" style="height: 200px; overflow-y: auto; background: #f8f9fa; padding: 1rem;">
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-comments fa-2x mb-2"></i>
+                        <p class="mb-0">Conversation transcript will appear here</p>
+                    </div>
+                </div>
+                
+                <!-- Input Controls -->
+                <div class="chat-input-container">
+                    <div class="input-group">
+                        <input type="text" id="messageInput" class="form-control" placeholder="Ask the patient about their symptoms..." maxlength="500" disabled>
+                        <button class="btn btn-primary" type="button" id="sendButton" disabled>
+                            <i class="fas fa-paper-plane me-2"></i>Send
+                        </button>
+                        <button class="btn btn-info" type="button" id="recordButton" disabled>
+                            <i class="fas fa-microphone me-2"></i>Voice
+                        </button>
+                        <button class="btn btn-success" type="button" id="startButton">
+                            <i class="fas fa-play me-2"></i>Start Session
+                        </button>
+                        <button class="btn btn-danger" type="button" id="stopButton" hidden>
+                            <i class="fas fa-stop me-2"></i>Stop Session
+                        </button>
+                    </div>
+                    <div class="mt-2 d-flex justify-content-between align-items-center">
+                        <small class="text-muted">
+                            <i class="fas fa-keyboard me-1"></i>
+                            Type or <i class="fas fa-microphone me-1"></i> speak your question
+                        </small>
+                        <small class="text-muted">
+                            <i class="fas fa-video me-1"></i>
+                            Powered by HeyGen Avatar + OpenAI patient simulation
+                        </small>
+                    </div>
+                    <div id="recordingStatus" class="mt-2" hidden>
+                        <small class="text-warning">
+                            <i class="fas fa-circle me-1" style="animation: pulse 1s infinite;"></i>
+                            Recording... Click again to stop and send
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<!-- LiveKit Client Library -->
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+<script>
+(function() {
+    'use strict';
+
+    // ============================================
+    // Configuration & State
+    // ============================================
+    const API_BASE = '/api/patient/v2/streaming';
+    let liveKitRoom = null;
+    let sessionData = null;
+    let streamingToken = null;
+    let isSessionActive = false;
+    
+    // Audio recording state
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+    let audioStream = null;
+
+    // ============================================
+    // DOM Elements
+    // ============================================
+    const elements = {
+        video: document.getElementById('avatarVideo'),
+        audio: document.getElementById('avatarAudio'),
+        placeholder: document.getElementById('placeholder'),
+        loading: document.getElementById('loading'),
+        loadingText: document.getElementById('loadingText'),
+        chatHistory: document.getElementById('chatHistory'),
+        messageInput: document.getElementById('messageInput'),
+        sendButton: document.getElementById('sendButton'),
+        recordButton: document.getElementById('recordButton'),
+        startButton: document.getElementById('startButton'),
+        stopButton: document.getElementById('stopButton'),
+        statusBadge: document.getElementById('statusBadge'),
+        sessionIdDisplay: document.getElementById('sessionIdDisplay'),
+        recordingStatus: document.getElementById('recordingStatus')
+    };
+
+    // ============================================
+    // Utility Functions
+    // ============================================
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function updateStatus(text, type = 'secondary') {
+        const icons = {
+            secondary: 'fa-circle',
+            success: 'fa-circle',
+            warning: 'fa-circle',
+            danger: 'fa-circle'
+        };
+        elements.statusBadge.innerHTML = `<i class="fas ${icons[type]} text-${type}"></i> ${text}`;
+    }
+
+    function showLoading(text = 'Loading...') {
+        elements.loadingText.textContent = text;
+        elements.loading.hidden = false;
+        elements.placeholder.hidden = true;
+    }
+
+    function hideLoading() {
+        elements.loading.hidden = true;
+    }
+
+    function addMessage(sender, message, isError = false) {
+        const placeholder = elements.chatHistory.querySelector('.text-center');
+        if (placeholder) placeholder.remove();
+
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `mb-2 p-2 rounded ${isError ? 'bg-danger text-white' : sender === 'User' ? 'bg-primary text-white ms-auto' : 'bg-light'}`;
+        messageDiv.style.maxWidth = '85%';
+        messageDiv.style.marginLeft = sender === 'User' ? 'auto' : '0';
+
+        const icon = sender === 'User' ? 'fa-user' : isError ? 'fa-exclamation-circle' : 'fa-user';
+        const escapedMessage = escapeHtml(message).replace(/\n/g, '<br>');
+        
+        messageDiv.innerHTML = `
+            <div class="d-flex align-items-start">
+                <span><i class="fas ${icon} me-2"></i></span>
+                <div class="flex-grow-1">
+                    <strong>${escapeHtml(sender)}:</strong>
+                    <div>${escapedMessage}</div>
+                    <small class="text-muted">${new Date().toLocaleTimeString()}</small>
+                </div>
+            </div>
+        `;
+
+        elements.chatHistory.appendChild(messageDiv);
+        elements.chatHistory.scrollTop = elements.chatHistory.scrollHeight;
+    }
+
+    // ============================================
+    // LiveKit Connection
+    // ============================================
+    async function connectToLiveKit(url, accessToken) {
+        return new Promise((resolve, reject) => {
+            let attempts = 0;
+            const maxAttempts = 20;
+            
+            function checkLiveKit() {
+                const LiveKit = window.LivekitClient;
+                if (LiveKit) {
+                    try {
+                        const room = new LiveKit.Room({
+                            adaptiveStream: true,
+                            dynacast: true
+                        });
+
+                        let videoTrackReceived = false;
+                        let audioTrackReceived = false;
+
+                        room.on(LiveKit.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+                            if (track.kind === LiveKit.Track.Kind.Video || track.kind === 'video') {
+                                track.attach(elements.video);
+                                elements.video.muted = true;
+                                elements.video.playsInline = true;
+                                elements.video.autoplay = true;
+                                elements.video.hidden = false;
+                                elements.placeholder.hidden = true;
+                                videoTrackReceived = true;
+                                
+                                const playPromise = elements.video.play();
+                                if (playPromise !== undefined) {
+                                    playPromise.catch((err) => console.error('[LK] Video play error:', err));
+                                }
+                                
+                                if (audioTrackReceived) {
+                                    hideLoading();
+                                    updateStatus('Connected', 'success');
+                                } else {
+                                    updateStatus('Connecting audio...', 'warning');
+                                }
+                                
+                            } else if (track.kind === LiveKit.Track.Kind.Audio || track.kind === 'audio') {
+                                track.attach(elements.audio);
+                                elements.audio.autoplay = true;
+                                elements.audio.muted = false;
+                                elements.audio.volume = 1.0;
+                                audioTrackReceived = true;
+                                
+                                const playPromise = elements.audio.play();
+                                if (playPromise !== undefined) {
+                                    playPromise
+                                        .then(() => {
+                                            if (videoTrackReceived) {
+                                                hideLoading();
+                                                updateStatus('Connected', 'success');
+                                            }
+                                        })
+                                        .catch((error) => console.warn('[LK] Audio play was prevented:', error));
+                                }
+                                
+                                if (videoTrackReceived) {
+                                    hideLoading();
+                                    updateStatus('Connected', 'success');
+                                }
+                            }
+                        });
+
+                        room.on(LiveKit.RoomEvent.TrackUnsubscribed, (track, publication, participant) => {
+                            if (track.kind === 'video') {
+                                track.detach(elements.video);
+                                videoTrackReceived = false;
+                                elements.video.hidden = true;
+                                elements.placeholder.hidden = false;
+                                updateStatus('Video disconnected', 'warning');
+                            } else if (track.kind === 'audio') {
+                                track.detach(elements.audio);
+                                audioTrackReceived = false;
+                                if (videoTrackReceived) {
+                                    updateStatus('Audio disconnected', 'warning');
+                                }
+                            }
+                        });
+
+                        room.on(LiveKit.RoomEvent.Disconnected, () => {
+                            updateStatus('Disconnected', 'danger');
+                            isSessionActive = false;
+                            elements.messageInput.disabled = true;
+                            elements.sendButton.disabled = true;
+                        });
+
+                        const connectPromise = room.connect(url, accessToken);
+                        const timeoutPromise = new Promise((_, rejectTimeout) => 
+                            setTimeout(() => rejectTimeout(new Error('Connection timeout after 30 seconds')), 30000)
+                        );
+
+                        Promise.race([connectPromise, timeoutPromise])
+                            .then(() => {
+                                console.log('LiveKit connected successfully');
+                                resolve(room);
+                            })
+                            .catch(reject);
+                    } catch (error) {
+                        reject(error);
+                    }
+                } else if (attempts < maxAttempts) {
+                    attempts++;
+                    setTimeout(checkLiveKit, 500);
+                } else {
+                    reject(new Error('LiveKit client library failed to load'));
+                }
+            }
+
+            checkLiveKit();
+        });
+    }
+
+    // ============================================
+    // API Calls
+    // ============================================
+    async function createSession() {
+        const response = await fetch(`${API_BASE}/session/create`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        return data;
+    }
+
+    async function sendTask(sessionId, message) {
+        if (!streamingToken) {
+            throw new Error('Streaming token is required. Please restart the session.');
+        }
+
+        const payload = {
+            message: message,
+            conversationId: sessionId,
+            streamingToken: streamingToken
+        };
+
+        const response = await fetch(`${API_BASE}/task`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            let errorMessage = `HTTP ${response.status}`;
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.error || errorData.message || errorMessage;
+            } catch (e) {
+                try {
+                    const errorText = await response.text();
+                    errorMessage = errorText || errorMessage;
+                } catch (e2) {
+                    // Use default error message
+                }
+            }
+            throw new Error(errorMessage);
+        }
+
+        const data = await response.json();
+        return data;
+    }
+
+    async function stopSession(sessionId) {
+        try {
+            await fetch(`${API_BASE}/session/stop`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    sessionId: sessionId,
+                    streamingToken: streamingToken
+                })
+            });
+        } catch (error) {
+            console.error('Error stopping session:', error);
+        }
+    }
+
+    // ============================================
+    // Session Management
+    // ============================================
+    async function startSession() {
+        try {
+            elements.startButton.disabled = true;
+            showLoading('Creating session...');
+            updateStatus('Creating session...', 'warning');
+
+            const sessionResponse = await createSession();
+            sessionData = sessionResponse;
+            streamingToken = sessionResponse.streamingToken;
+            elements.sessionIdDisplay.textContent = sessionResponse.sessionId.substring(0, 8) + '...';
+
+            showLoading('Connecting to patient avatar...');
+            updateStatus('Connecting...', 'warning');
+
+            liveKitRoom = await connectToLiveKit(sessionResponse.url, sessionResponse.accessToken);
+
+            // Send initial greeting
+            try {
+                const greeting = "Briefly introduce yourself as a patient who has come to the emergency room. Mention you're feeling unwell and need help.";
+                const greetingResponse = await sendTask(sessionResponse.sessionId, greeting);
+                
+                if (greetingResponse.transcript) {
+                    addMessage('Patient', greetingResponse.transcript);
+                }
+            } catch (error) {
+                console.error('Error sending greeting:', error);
+                addMessage('System', `Note: Initial greeting failed (${error.message}). The avatar may appear static until you send a message.`, false);
+            }
+
+            isSessionActive = true;
+            elements.messageInput.disabled = false;
+            elements.sendButton.disabled = false;
+            elements.recordButton.disabled = false;
+            elements.startButton.hidden = true;
+            elements.stopButton.hidden = false;
+            updateStatus('Connected', 'success');
+
+        } catch (error) {
+            console.error('Error starting session:', error);
+            addMessage('System', `Failed to start session: ${error.message}`, true);
+            updateStatus('Error', 'danger');
+            hideLoading();
+            elements.placeholder.hidden = false;
+            elements.startButton.disabled = false;
+
+            if (sessionData) {
+                await stopSession(sessionData.sessionId);
+            }
+            if (liveKitRoom) {
+                try {
+                    liveKitRoom.disconnect();
+                } catch (e) {
+                    console.error('Error disconnecting:', e);
+                }
+            }
+            
+            sessionData = null;
+            streamingToken = null;
+        }
+    }
+
+    async function stopSessionHandler() {
+        try {
+            elements.stopButton.disabled = true;
+            updateStatus('Stopping...', 'warning');
+
+            if (sessionData) {
+                await stopSession(sessionData.sessionId);
+            }
+
+            if (liveKitRoom) {
+                liveKitRoom.disconnect();
+            }
+
+            isSessionActive = false;
+            sessionData = null;
+            liveKitRoom = null;
+
+            elements.video.hidden = true;
+            elements.placeholder.hidden = false;
+            hideLoading();
+            elements.messageInput.disabled = true;
+            elements.sendButton.disabled = true;
+            elements.recordButton.disabled = true;
+            elements.startButton.hidden = false;
+            elements.stopButton.hidden = true;
+            elements.startButton.disabled = false;
+            elements.sessionIdDisplay.textContent = '-';
+            updateStatus('Ready', 'secondary');
+            sessionData = null;
+            streamingToken = null;
+            addMessage('System', 'Session stopped.', false);
+            
+            if (isRecording) {
+                stopRecording();
+            }
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
+
+        } catch (error) {
+            console.error('Error stopping session:', error);
+            addMessage('System', `Error stopping session: ${error.message}`, true);
+            elements.stopButton.disabled = false;
+        }
+    }
+
+    async function sendMessage() {
+        const message = elements.messageInput.value.trim();
+        if (!message || !isSessionActive) {
+            return;
+        }
+
+        if (!sessionData || !sessionData.sessionId) {
+            addMessage('System', 'Session not initialized. Please start a session first.', true);
+            return;
+        }
+
+        if (!streamingToken) {
+            addMessage('System', 'Streaming token missing. Please restart the session.', true);
+            return;
+        }
+
+        addMessage('User', message);
+        elements.messageInput.value = '';
+        elements.sendButton.disabled = true;
+        showLoading('Processing...');
+        updateStatus('Processing...', 'warning');
+
+        try {
+            const response = await sendTask(sessionData.sessionId, message);
+            
+            if (response.transcript) {
+                addMessage('Patient', response.transcript);
+            }
+
+            hideLoading();
+            updateStatus('Connected', 'success');
+        } catch (error) {
+            console.error('Error sending message:', error);
+            addMessage('System', `Error: ${error.message}`, true);
+            hideLoading();
+            updateStatus('Error', 'danger');
+        } finally {
+            elements.sendButton.disabled = false;
+        }
+    }
+
+    // ============================================
+    // Audio Recording Functions
+    // ============================================
+    function getSupportedMimeType() {
+        const types = [
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/ogg;codecs=opus',
+            'audio/ogg',
+            'audio/mp4',
+            'audio/mpeg'
+        ];
+        
+        for (const type of types) {
+            if (MediaRecorder.isTypeSupported(type)) {
+                return type;
+            }
+        }
+        return '';
+    }
+
+    async function startRecording() {
+        try {
+            if (!window.MediaRecorder) {
+                throw new Error('MediaRecorder API is not supported in this browser.');
+            }
+
+            audioStream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                    channelCount: 1,
+                    sampleRate: 16000,
+                    echoCancellation: true,
+                    noiseSuppression: true
+                } 
+            });
+
+            const mimeType = getSupportedMimeType();
+            const options = mimeType ? { mimeType: mimeType } : {};
+
+            try {
+                mediaRecorder = new MediaRecorder(audioStream, options);
+            } catch (recorderError) {
+                mediaRecorder = new MediaRecorder(audioStream);
+            }
+
+            const actualMimeType = mediaRecorder.mimeType || 'audio/webm';
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onerror = (event) => {
+                addMessage('System', `Recording error: ${event.error?.message || 'Unknown error'}`, true);
+                stopRecording();
+            };
+
+            mediaRecorder.onstop = async () => {
+                if (audioChunks.length === 0) {
+                    addMessage('System', 'No audio was recorded. Please try again.', true);
+                    elements.recordButton.disabled = false;
+                    return;
+                }
+
+                const audioBlob = new Blob(audioChunks, { type: actualMimeType });
+                
+                if (audioStream) {
+                    audioStream.getTracks().forEach(track => track.stop());
+                    audioStream = null;
+                }
+
+                await sendAudio(audioBlob);
+            };
+
+            mediaRecorder.start(100);
+            isRecording = true;
+            
+            elements.recordButton.innerHTML = '<i class="fas fa-stop me-2"></i>Stop';
+            elements.recordButton.classList.remove('btn-info');
+            elements.recordButton.classList.add('btn-danger');
+            elements.recordingStatus.hidden = false;
+            updateStatus('Recording...', 'warning');
+
+        } catch (error) {
+            let errorMessage = error.message;
+            if (error.name === 'NotAllowedError') {
+                errorMessage = 'Microphone access denied. Please allow microphone access and try again.';
+            } else if (error.name === 'NotFoundError') {
+                errorMessage = 'No microphone found. Please connect a microphone and try again.';
+            }
+            
+            addMessage('System', `Error accessing microphone: ${errorMessage}`, true);
+            isRecording = false;
+            elements.recordButton.disabled = false;
+            
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
+            }
+        }
+    }
+
+    function stopRecording() {
+        if (mediaRecorder && isRecording) {
+            mediaRecorder.stop();
+            isRecording = false;
+            
+            elements.recordButton.innerHTML = '<i class="fas fa-microphone me-2"></i>Voice';
+            elements.recordButton.classList.remove('btn-danger');
+            elements.recordButton.classList.add('btn-info');
+            elements.recordingStatus.hidden = true;
+            elements.recordButton.disabled = true;
+            updateStatus('Processing audio...', 'warning');
+        }
+    }
+
+    async function sendAudio(audioBlob) {
+        if (!isSessionActive || !sessionData) {
+            addMessage('System', 'Session not active. Please start a session first.', true);
+            elements.recordButton.disabled = false;
+            return;
+        }
+
+        if (!audioBlob || audioBlob.size === 0) {
+            addMessage('System', 'No audio data to send. Please try recording again.', true);
+            elements.recordButton.disabled = false;
+            return;
+        }
+
+        if (audioBlob.size < 1024) {
+            addMessage('System', 'Audio recording is too short. Please record at least 1 second of audio.', true);
+            elements.recordButton.disabled = false;
+            return;
+        }
+
+        if (audioBlob.size > 25 * 1024 * 1024) {
+            addMessage('System', 'Audio recording is too large. Maximum size is 25MB.', true);
+            elements.recordButton.disabled = false;
+            return;
+        }
+
+        try {
+            showLoading('Processing audio with Whisper...');
+            updateStatus('Sending audio to Whisper...', 'warning');
+            
+            let fileExtension = 'webm';
+            if (audioBlob.type.includes('ogg')) {
+                fileExtension = 'ogg';
+            } else if (audioBlob.type.includes('mp4') || audioBlob.type.includes('mpeg')) {
+                fileExtension = 'mp4';
+            } else if (audioBlob.type.includes('wav')) {
+                fileExtension = 'wav';
+            }
+            
+            const fileName = `recording.${fileExtension}`;
+            const formData = new FormData();
+            formData.append('audio', audioBlob, fileName);
+            formData.append('conversationId', sessionData.sessionId);
+            
+            if (streamingToken) {
+                formData.append('streamingToken', streamingToken);
+            }
+
+            const response = await fetch(`${API_BASE}/audio`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                let errorMessage = `HTTP ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorData.message || errorMessage;
+                } catch (e) {
+                    try {
+                        const errorText = await response.text();
+                        errorMessage = errorText || errorMessage;
+                    } catch (e2) {
+                        // Use default
+                    }
+                }
+                throw new Error(errorMessage);
+            }
+
+            const data = await response.json();
+
+            if (data.userTranscript) {
+                addMessage('User', data.userTranscript);
+            }
+
+            if (data.patientTranscript) {
+                addMessage('Patient', data.patientTranscript);
+            }
+
+            hideLoading();
+            updateStatus('Connected', 'success');
+
+        } catch (error) {
+            console.error('[AUDIO] Error sending audio:', error);
+            addMessage('System', `Error: ${error.message}`, true);
+            hideLoading();
+            updateStatus('Error', 'danger');
+        } finally {
+            elements.recordButton.disabled = false;
+        }
+    }
+
+    function toggleRecording() {
+        if (!isRecording) {
+            startRecording();
+        } else {
+            stopRecording();
+        }
+    }
+
+    // ============================================
+    // Event Listeners
+    // ============================================
+    elements.startButton.addEventListener('click', startSession);
+    elements.stopButton.addEventListener('click', stopSessionHandler);
+    elements.sendButton.addEventListener('click', sendMessage);
+    elements.recordButton.addEventListener('click', toggleRecording);
+    elements.messageInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && isSessionActive) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    window.addEventListener('beforeunload', async () => {
+        if (sessionData) {
+            await stopSession(sessionData.sessionId);
+        }
+        if (liveKitRoom) {
+            try {
+                liveKitRoom.disconnect();
+            } catch (e) {
+                console.error('Error disconnecting on unload:', e);
+            }
+        }
+    });
+
+    console.log('Patient page initialized');
+})();
+</script>
+}
+

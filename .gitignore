@@ -56,6 +56,15 @@ chat_logs.txt
 .env.local
 .env.*.local
 
+# ===== API Keys and Secrets (CRITICAL - DO NOT COMMIT) =====
+**/appsettings.json
+**/appsettings.Development.json
+**/appsettings.*.json
+!**/appsettings.Example.json
+!**/appsettings.Development.Example.json
+*.secrets.json
+secrets.json
+
 # ===== Python artifacts =====
 __pycache__/
 *.pyc

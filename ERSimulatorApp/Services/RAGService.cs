@@ -1,6 +1,7 @@
 using ERSimulatorApp.Models;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -15,6 +16,7 @@ namespace ERSimulatorApp.Services
         private readonly string _apiKey;
         private readonly string _model;
         private readonly int _topK;
+        private readonly string _localRagUrl;
 
         public RAGService(HttpClient httpClient, ILogger<RAGService> logger, IConfiguration configuration)
         {
@@ -24,6 +26,7 @@ namespace ERSimulatorApp.Services
             _apiKey = configuration["RAG:ApiKey"] ?? string.Empty;
             _model = configuration["RAG:Model"] ?? "meta-llama/Llama-3.2-1B-instruct";
             _topK = configuration.GetValue<int?>("RAG:TopK") ?? 5;
+            _localRagUrl = configuration["RAG:LocalRagUrl"] ?? "http://127.0.0.1:5001/api/ask";
         }
 
         private const string FallbackMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
@@ -48,8 +51,6 @@ namespace ERSimulatorApp.Services
                 var ragContent = new StringContent(ragJson, Encoding.UTF8, "application/json");
 
                 _logger.LogInformation($"Sending prompt to RAG server: {prompt.Substring(0, Math.Min(50, prompt.Length))}...");
-                _logger.LogInformation($"RAG BaseUrl: {_ragBaseUrl}");
-                _logger.LogInformation($"RAG API Key present: {!string.IsNullOrWhiteSpace(_apiKey)}, Key length: {_apiKey?.Length ?? 0}, Key preview: {(_apiKey?.Substring(0, Math.Min(10, _apiKey?.Length ?? 0)) ?? "null")}...");
 
                 // Create request with headers to avoid thread-safety issues
                 var requestMessage = new HttpRequestMessage(HttpMethod.Post, _ragBaseUrl)
@@ -60,12 +61,7 @@ namespace ERSimulatorApp.Services
                 // Add API key if configured
                 if (!string.IsNullOrWhiteSpace(_apiKey))
                 {
-                    requestMessage.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _apiKey);
-                    _logger.LogInformation("Authorization header set with Bearer token");
-                }
-                else
-                {
-                    _logger.LogWarning("RAG API key is empty or null - request will fail");
+                    requestMessage.Headers.Add("Authorization", $"Bearer {_apiKey}");
                 }
 
                 var ragResponse = await _httpClient.SendAsync(requestMessage);
@@ -129,6 +125,9 @@ namespace ERSimulatorApp.Services
                 // Handle sources - check if response includes sources in metadata or separate field
                 var references = new List<SourceReference>();
                 
+                _logger.LogInformation("Starting source extraction - ragData.Sources: {HasSources}, Count: {Count}", 
+                    ragData.Sources != null, ragData.Sources?.Count ?? 0);
+                
                 // Try to extract sources from response metadata or additional fields
                 if (ragData.Sources != null && ragData.Sources.Count > 0)
                 {
@@ -186,78 +185,90 @@ namespace ERSimulatorApp.Services
                     }
                 }
                 
-                // If still no sources found, infer sources based on query content and available documents
-                if (references.Count == 0 && !string.IsNullOrEmpty(answer))
+                // If still no sources found, try to extract from response text itself
+                // Some RAG APIs embed source information in the response text
+                // NOTE: This is disabled in favor of inference-based source matching
+                // The regex patterns were too permissive and matched false positives
+                if (false && references.Count == 0 && !string.IsNullOrEmpty(answer))
                 {
-                    _logger.LogInformation("No sources found in structured format, inferring sources from query content");
+                    _logger.LogInformation("No sources found in structured format, attempting to extract from response text");
                     
-                    // Map medical topics to likely source documents
-                    var topicToSources = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase)
+                    // Look for common source patterns in the response text
+                    // Pattern: filename references, document mentions, etc.
+                    // Only match filenames that are clearly document names (at least 5 chars, contains spaces or proper capitalization)
+                    var sourcePatterns = new[]
                     {
-                        { "ATLS", new List<string> { "Advanced Trauma Life Support.pdf", "An Extended Reality Simulator for Advanced Trauma Life Support Training.pdf", "ATLS UPDATE: CASE STUDIES IN TRAUMA.pdf" } },
-                        { "Advanced Trauma Life Support", new List<string> { "Advanced Trauma Life Support.pdf", "An Extended Reality Simulator for Advanced Trauma Life Support Training.pdf", "ATLS UPDATE: CASE STUDIES IN TRAUMA.pdf" } },
-                        { "trauma", new List<string> { "Advanced Trauma Life Support.pdf", "Trauma Resuscitation.pdf", "ATLS UPDATE: CASE STUDIES IN TRAUMA.pdf", "Surgical Decision-Making in the Management of Polytrauma Patients.pdf" } },
-                        { "resuscitation", new List<string> { "Trauma Resuscitation.pdf", "Pediatric Trauma Resuscitation.pdf", "Simulation in Trauma Advanced Cardiac Life Support.pdf" } },
-                        { "pediatric", new List<string> { "Pediatric Trauma Resuscitation.pdf" } },
-                        { "pediatric trauma", new List<string> { "Pediatric Trauma Resuscitation.pdf" } },
-                        { "airway", new List<string> { "Advanced Trauma Life Support.pdf", "Trauma Resuscitation.pdf" } },
-                        { "ABCDE", new List<string> { "Advanced Trauma Life Support.pdf", "ATLS UPDATE: CASE STUDIES IN TRAUMA.pdf" } },
-                        { "polytrauma", new List<string> { "Surgical Decision-Making in the Management of Polytrauma Patients.pdf" } },
-                        { "imaging", new List<string> { "The Evolving Role of Computed Tomography (CT) in Trauma Care.pdf" } },
-                        { "CT", new List<string> { "The Evolving Role of Computed Tomography (CT) in Trauma Care.pdf" } },
-                        { "computed tomography", new List<string> { "The Evolving Role of Computed Tomography (CT) in Trauma Care.pdf" } },
-                        { "virtual reality", new List<string> { "Virtual reality simulation to enhance advanced trauma life support trainings – a randomized controlled trial.pdf", "An Extended Reality Simulator for Advanced Trauma Life Support Training.pdf" } },
-                        { "simulation", new List<string> { "Simulation in Trauma Advanced Cardiac Life Support.pdf", "Virtual reality simulation to enhance advanced trauma life support trainings – a randomized controlled trial.pdf", "An Extended Reality Simulator for Advanced Trauma Life Support Training.pdf" } }
+                        @"(?:from|in|based on|according to|per)\s+([A-Z][A-Za-z0-9_\-\s]{4,}\.pdf)",
+                        @"([A-Z][A-Za-z0-9_\-\s]{4,}\.pdf)"
                     };
                     
-                    // Check query and answer for topic keywords
-                    var queryLower = prompt.ToLowerInvariant();
-                    var answerLower = answer.ToLowerInvariant();
-                    var combinedText = queryLower + " " + answerLower;
-                    
-                    var matchedSources = new HashSet<string>();
-                    foreach (var topic in topicToSources.Keys)
+                    var foundFiles = new HashSet<string>();
+                    foreach (var pattern in sourcePatterns)
                     {
-                        if (combinedText.Contains(topic.ToLowerInvariant()))
+                        var matches = System.Text.RegularExpressions.Regex.Matches(answer, pattern, 
+                            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        foreach (System.Text.RegularExpressions.Match match in matches)
                         {
-                            foreach (var sourceFile in topicToSources[topic])
+                            if (match.Groups.Count > 1 && !string.IsNullOrWhiteSpace(match.Groups[1].Value))
                             {
-                                matchedSources.Add(sourceFile);
+                                var filename = match.Groups[1].Value.Trim();
+                                // Only accept filenames that look like real document names
+                                if (filename.Length >= 10 && !foundFiles.Contains(filename))
+                                {
+                                    foundFiles.Add(filename);
+                                    references.Add(new SourceReference
+                                    {
+                                        Filename = filename,
+                                        Title = Path.GetFileNameWithoutExtension(filename) ?? filename,
+                                        Preview = "Extracted from response",
+                                        Similarity = 0.7
+                                    });
+                                }
                             }
                         }
                     }
                     
-                    // If no specific matches, include general trauma documents
-                    if (matchedSources.Count == 0)
-                    {
-                        matchedSources.Add("Advanced Trauma Life Support.pdf");
-                        matchedSources.Add("Trauma Resuscitation.pdf");
-                    }
-                    
-                    // Create source references
-                    var similarity = 0.85;
-                    foreach (var sourceFile in matchedSources.Take(5)) // Limit to top 5 sources
-                    {
-                        var title = Path.GetFileNameWithoutExtension(sourceFile) ?? sourceFile;
-                        var preview = $"Relevant information from {title}";
-                        
-                        references.Add(new SourceReference
-                        {
-                            Filename = sourceFile,
-                            Title = title,
-                            Preview = preview,
-                            Similarity = similarity
-                        });
-                        similarity -= 0.1; // Decrease similarity for each additional source
-                    }
-                    
                     if (references.Count > 0)
                     {
-                        _logger.LogInformation($"Inferred {references.Count} sources based on query content: {string.Join(", ", references.Select(r => r.Filename))}");
+                        _logger.LogInformation($"Extracted {references.Count} sources from response text");
                     }
                 }
 
+                // If no sources found from remote RAG server, try to infer from the response content
+                _logger.LogInformation("Before inference check - references.Count: {Count}", references.Count);
+                if (references.Count == 0)
+                {
+                    try
+                    {
+                        _logger.LogInformation("No sources from remote RAG server, attempting to infer sources from response content. Prompt length: {PromptLen}, Answer length: {AnswerLen}", 
+                            prompt?.Length ?? 0, answer?.Length ?? 0);
+                        var inferredSources = InferSourcesFromRemoteResponse(prompt, answer);
+                        _logger.LogInformation("Inference returned {Count} sources", inferredSources.Count);
+                        if (inferredSources.Count > 0)
+                        {
+                            references = inferredSources;
+                            _logger.LogInformation($"Inferred {references.Count} sources from remote RAG server response");
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Inference returned 0 sources - inference may have failed");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to infer sources from remote RAG response, continuing without sources");
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("Skipping inference - already have {Count} sources from remote RAG server", references.Count);
+                }
+
                 _logger.LogInformation($"RAG response received with {references.Count} sources");
+                if (references.Count > 0)
+                {
+                    _logger.LogInformation($"Source titles: {string.Join(", ", references.Select(r => r.Title))}");
+                }
 
                 // Format response with sources inline for backward compatibility
                 var formattedResponse = answer;
@@ -295,6 +306,221 @@ namespace ERSimulatorApp.Services
                 };
             }
         }
+
+        /// <summary>
+        /// Infers sources from the remote RAG server's response by matching content against known documents
+        /// </summary>
+        private List<SourceReference> InferSourcesFromRemoteResponse(string prompt, string response)
+        {
+            var references = new List<SourceReference>();
+            
+            try
+            {
+                // Known document names from the RAG knowledge base
+                var knownDocuments = new[]
+                {
+                    "Advanced Trauma Life Support",
+                    "ATLS UPDATE: CASE STUDIES IN TRAUMA",
+                    "Pediatric Trauma Resuscitation",
+                    "Trauma Resuscitation",
+                    "Simulation in Trauma Advanced Cardiac Life Support",
+                    "Surgical Decision-Making in the Management of Polytrauma Patients",
+                    "The Evolving Role of Computed Tomography (CT) in Trauma Care",
+                    "Virtual reality simulation to enhance advanced trauma life support trainings",
+                    "An Extended Reality Simulator for Advanced Trauma Life Support Training"
+                };
+
+                // Combine prompt and response for matching
+                var combinedText = $"{prompt} {response}".ToLowerInvariant();
+                
+                // Match document names against the response content
+                var matchedDocs = new Dictionary<string, double>();
+                
+                foreach (var docName in knownDocuments)
+                {
+                    var docNameLower = docName.ToLowerInvariant();
+                    var keywords = docNameLower.Split(new[] { ' ', ':', '-', '(', ')' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Where(k => k.Length > 3) // Only meaningful keywords
+                        .ToArray();
+                    
+                    if (keywords.Length == 0) continue;
+                    
+                    // Count how many keywords appear in the response
+                    var matchCount = keywords.Count(k => combinedText.Contains(k));
+                    var matchScore = (double)matchCount / keywords.Length;
+                    
+                    // Also check for exact phrase matches (higher weight)
+                    if (combinedText.Contains(docNameLower))
+                    {
+                        matchScore = Math.Max(matchScore, 0.8);
+                    }
+                    
+                    // Check for acronym matches (e.g., "ATLS")
+                    var acronym = string.Join("", keywords.Select(k => k.Length > 0 ? k[0].ToString().ToUpper() : ""));
+                    if (acronym.Length >= 3 && combinedText.Contains(acronym.ToLowerInvariant()))
+                    {
+                        matchScore = Math.Max(matchScore, 0.7);
+                    }
+                    
+                    if (matchScore > 0.3) // Threshold for relevance
+                    {
+                        matchedDocs[docName] = matchScore;
+                    }
+                }
+                
+                // Convert to SourceReference objects, sorted by relevance
+                references = matchedDocs
+                    .OrderByDescending(kvp => kvp.Value)
+                    .Take(_topK) // Limit to top K documents
+                    .Select(kvp =>
+                    {
+                        var filename = kvp.Key + ".pdf";
+                        return new SourceReference
+                        {
+                            Filename = filename,
+                            Title = kvp.Key,
+                            Preview = ExtractPreviewFromResponse(response, kvp.Key),
+                            Similarity = kvp.Value
+                        };
+                    })
+                    .ToList();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error inferring sources from remote RAG response");
+            }
+
+            return references;
+        }
+
+        /// <summary>
+        /// Extracts a preview snippet from the response that relates to the document
+        /// </summary>
+        private string ExtractPreviewFromResponse(string response, string documentName)
+        {
+            try
+            {
+                // Find sentences that might relate to the document
+                var sentences = response.Split(new[] { '.', '!', '?' }, StringSplitOptions.RemoveEmptyEntries);
+                var keywords = documentName.ToLowerInvariant()
+                    .Split(new[] { ' ', ':', '-', '(', ')' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Where(k => k.Length > 3)
+                    .ToArray();
+                
+                // Find the first sentence that contains any keyword
+                foreach (var sentence in sentences)
+                {
+                    var sentenceLower = sentence.ToLowerInvariant();
+                    if (keywords.Any(k => sentenceLower.Contains(k)))
+                    {
+                        var preview = sentence.Trim();
+                        return preview.Length > 200 ? preview.Substring(0, 200) + "..." : preview;
+                    }
+                }
+                
+                // Fallback: return first 200 chars
+                return response.Length > 200 ? response.Substring(0, 200) + "..." : response;
+            }
+            catch
+            {
+                return "Inferred from response content";
+            }
+        }
+
+        /// <summary>
+        /// Infers sources by querying the local RAG server with the same question
+        /// </summary>
+        private async Task<List<SourceReference>> InferSourcesFromLocalRagAsync(string prompt)
+        {
+            var references = new List<SourceReference>();
+            
+            try
+            {
+                // Query local RAG server to get source documents
+                var localRagRequest = new
+                {
+                    q = prompt
+                };
+
+                var localRagJson = JsonSerializer.Serialize(localRagRequest);
+                var localRagContent = new StringContent(localRagJson, Encoding.UTF8, "application/json");
+
+                var localRagRequestMessage = new HttpRequestMessage(HttpMethod.Post, _localRagUrl)
+                {
+                    Content = localRagContent
+                };
+
+                // Use a shorter timeout for source inference (we don't need the full response)
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var localRagResponse = await _httpClient.SendAsync(localRagRequestMessage, cts.Token);
+
+                if (localRagResponse.IsSuccessStatusCode)
+                {
+                    var localRagResponseContent = await localRagResponse.Content.ReadAsStringAsync();
+                    var localRagData = JsonSerializer.Deserialize<LocalRAGResponse>(localRagResponseContent);
+
+                    if (localRagData?.Sources != null && localRagData.Sources.Count > 0)
+                    {
+                        references = localRagData.Sources
+                            .Select(source =>
+                            {
+                                var fileNameOnly = Path.GetFileName(source.Filename);
+                                var title = Path.GetFileNameWithoutExtension(fileNameOnly);
+                                return new SourceReference
+                                {
+                                    Filename = source.Filename,
+                                    Title = string.IsNullOrWhiteSpace(title) ? fileNameOnly : title,
+                                    Preview = source.Preview ?? string.Empty,
+                                    Similarity = source.Similarity
+                                };
+                            })
+                            .ToList();
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("Local RAG server returned status {StatusCode} when inferring sources", localRagResponse.StatusCode);
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                _logger.LogWarning("Local RAG server timeout when inferring sources");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error querying local RAG server for source inference");
+            }
+
+            return references;
+        }
+    }
+
+    // Local RAG server response format
+    public class LocalRAGResponse
+    {
+        [JsonPropertyName("answer")]
+        public string? Answer { get; set; }
+        
+        [JsonPropertyName("model")]
+        public string? Model { get; set; }
+        
+        [JsonPropertyName("rag_used")]
+        public bool? RagUsed { get; set; }
+        
+        [JsonPropertyName("sources")]
+        public List<LocalRAGSource>? Sources { get; set; }
+    }
+
+    public class LocalRAGSource
+    {
+        [JsonPropertyName("filename")]
+        public string Filename { get; set; } = string.Empty;
+        
+        [JsonPropertyName("similarity")]
+        public double Similarity { get; set; }
+        
+        [JsonPropertyName("preview")]
+        public string? Preview { get; set; }
     }
 
     // OpenAI-compatible chat completions response
