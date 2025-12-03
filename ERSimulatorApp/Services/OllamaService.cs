@@ -93,9 +93,7 @@ namespace ERSimulatorApp.Services
 
         public ChatLogService()
         {
-            // Use /app/data for persistent storage in container, fallback to current directory for local dev
-            var dataDir = Directory.Exists("/app/data") ? "/app/data" : Directory.GetCurrentDirectory();
-            _logFilePath = Path.Combine(dataDir, "chat_logs.txt");
+            _logFilePath = Path.Combine(Directory.GetCurrentDirectory(), "chat_logs.txt");
         }
 
         public void LogChat(ChatLogEntry entry)

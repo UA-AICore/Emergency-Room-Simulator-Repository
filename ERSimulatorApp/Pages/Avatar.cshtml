@@ -58,11 +58,11 @@
                     </div>
                 </div>
                 
-                <!-- Input Controls -->
+                <!-- Input Controls - Voice Only -->
                 <div class="chat-input-container">
                     <div class="input-group">
-                        <input type="text" id="messageInput" class="form-control" placeholder="Ask your medical question..." maxlength="500" disabled>
-                        <button class="btn btn-primary" type="button" id="sendButton" disabled>
+                        <input type="text" id="messageInput" class="form-control" placeholder="Ask your medical question..." maxlength="500" disabled style="display: none;">
+                        <button class="btn btn-primary" type="button" id="sendButton" disabled style="display: none;">
                             <i class="fas fa-paper-plane me-2"></i>Send
                         </button>
                         <button class="btn btn-info" type="button" id="recordButton" disabled>
@@ -77,8 +77,8 @@
                     </div>
                     <div class="mt-2 d-flex justify-content-between align-items-center">
                         <small class="text-muted">
-                            <i class="fas fa-keyboard me-1"></i>
-                            Type or <i class="fas fa-microphone me-1"></i> speak your question
+                            <i class="fas fa-microphone me-1"></i>
+                            Voice interaction only - Click Voice button to speak your question
                         </small>
                         <small class="text-muted">
                             <i class="fas fa-video me-1"></i>
@@ -90,6 +90,26 @@
                             <i class="fas fa-circle me-1" style="animation: pulse 1s infinite;"></i>
                             Recording... Click again to stop and send
                         </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sources Panel (hidden; no longer needed in UI) -->
+        <div class="col-lg-4" style="display:none;">
+            <div class="logs-panel sources-panel h-100 d-flex flex-column">
+                <div class="sources-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-link me-2"></i>
+                        Reference Sources
+                    </h5>
+                    <p class="text-white-50 small mb-0">Medical documents referenced in the avatar's response.</p>
+                </div>
+                <div class="sources-body" id="sourcesContainer">
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
+                        <p>No sources yet</p>
+                        <p class="small">Start a conversation to see cited references.</p>
                     </div>
                 </div>
             </div>
@@ -189,6 +209,56 @@
     let audioStream = null;
 
     // ============================================
+    // Browser Speech Recognition (Web Speech API)
+    // ============================================
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+
+    if (SpeechRecognition) {
+        try {
+            recognition = new SpeechRecognition();
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            recognition.addEventListener('result', (event) => {
+                const transcript = event.results[0][0].transcript;
+                console.log('[STT] Heard:', transcript);
+
+                // Reuse existing text chat pipeline
+                elements.messageInput.value = transcript;
+                if (isSessionActive && transcript && transcript.trim()) {
+                    sendMessage();
+                }
+            });
+
+            recognition.addEventListener('end', () => {
+                console.log('[STT] Recognition ended');
+                elements.recordButton.disabled = false;
+                elements.recordButton.innerHTML = '<i class="fas fa-microphone me-2"></i>Voice';
+                elements.recordButton.classList.remove('btn-danger');
+                elements.recordButton.classList.add('btn-info');
+                elements.recordingStatus.hidden = true;
+                if (isSessionActive) {
+                    updateStatus('Connected', 'success');
+                }
+            });
+
+            recognition.addEventListener('error', (event) => {
+                console.error('[STT] Recognition error:', event.error);
+                addMessage('System', `Speech recognition error: ${event.error}`, true);
+            });
+
+            console.log('[STT] Web Speech API initialized');
+        } catch (err) {
+            console.warn('[STT] Failed to initialize Web Speech API:', err);
+            recognition = null;
+        }
+    } else {
+        console.log('[STT] Web Speech API not supported in this browser');
+    }
+
+    // ============================================
     // DOM Elements
     // ============================================
     const elements = {
@@ -205,6 +275,7 @@
         stopButton: document.getElementById('stopButton'),
         statusBadge: document.getElementById('statusBadge'),
         sessionIdDisplay: document.getElementById('sessionIdDisplay'),
+        sourcesContainer: document.getElementById('sourcesContainer'),
         recordingStatus: document.getElementById('recordingStatus')
     };
 
@@ -265,6 +336,54 @@
         elements.chatHistory.scrollTop = elements.chatHistory.scrollHeight;
     }
 
+    function updateSources(sources, isFallback) {
+        elements.sourcesContainer.innerHTML = '';
+
+        if (isFallback) {
+            elements.sourcesContainer.innerHTML = `
+                <div class="text-center text-muted py-5">
+                    <i class="fas fa-plug-circle-exclamation fa-3x mb-3" style="color: #ea580c;"></i>
+                    <p>Reference services are offline.</p>
+                </div>
+            `;
+            return;
+        }
+
+        if (!sources || sources.length === 0) {
+            elements.sourcesContainer.innerHTML = `
+                <div class="text-center text-muted py-5">
+                    <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
+                    <p>No sources yet</p>
+                </div>
+            `;
+            return;
+        }
+
+        sources.forEach(source => {
+            if (!source || !source.url) return;
+
+            const entry = document.createElement('div');
+            entry.className = 'source-entry mb-3 p-3 bg-dark rounded';
+            
+            const titleLink = document.createElement('a');
+            titleLink.className = 'text-white text-decoration-none';
+            titleLink.href = source.url;
+            titleLink.target = '_blank';
+            titleLink.textContent = source.title || 'Reference material';
+            titleLink.style.fontWeight = 'bold';
+
+            entry.appendChild(titleLink);
+
+            if (source.preview) {
+                const preview = document.createElement('p');
+                preview.className = 'text-white-50 small mt-2 mb-0';
+                preview.textContent = source.preview;
+                entry.appendChild(preview);
+            }
+
+            elements.sourcesContainer.appendChild(entry);
+        });
+    }
 
     // ============================================
     // LiveKit Connection
@@ -491,6 +610,7 @@
         console.log('[API] /task success:', { 
             hasTranscript: !!data.transcript,
             transcriptLength: data.transcript?.length || 0,
+            sourceCount: data.sources?.length || 0
         });
         return data;
     }
@@ -543,7 +663,7 @@
                 console.log('Sending initial greeting to animate avatar...');
                 // Send a greeting that establishes Dr. Dexter as the instructor
                 // This will be processed through RAG+personality to create Dr. Dexter's introduction
-                const greeting = "Introduce yourself as Dr. Dexter, a medical instructor with decades of ER experience. Tell the student you have access to a comprehensive medical knowledge database and you're ready to teach them about emergency medicine and trauma care. Ask what medical topic they'd like to learn about.";
+                const greeting = "Briefly introduce yourself as Dr. Dexter, an experienced ER physician. Mention you have access to a medical knowledge database and ask what topic they'd like to learn about.";
                 const greetingResponse = await sendTask(sessionResponse.sessionId, greeting);
                 
                 console.log('Greeting sent successfully, avatar should now be animating');
@@ -551,16 +671,19 @@
                 if (greetingResponse.transcript) {
                     addMessage('Avatar', greetingResponse.transcript);
                 }
+                if (greetingResponse.sources) {
+                    updateSources(greetingResponse.sources, greetingResponse.isFallback);
+                }
             } catch (error) {
                 console.error('Error sending greeting:', error);
                 // Inform user but don't fail session
                 addMessage('System', `Note: Initial greeting failed (${error.message}). The avatar may appear static until you send a message.`, false);
             }
 
-            // Step 4: Enable UI
+            // Step 4: Enable UI (Voice only - text input disabled)
             isSessionActive = true;
-            elements.messageInput.disabled = false;
-            elements.sendButton.disabled = false;
+            // elements.messageInput.disabled = false; // Text input disabled
+            // elements.sendButton.disabled = false; // Text input disabled
             elements.recordButton.disabled = false;
             elements.startButton.hidden = true;
             elements.stopButton.hidden = false;
@@ -613,8 +736,8 @@
             elements.video.hidden = true;
             elements.placeholder.hidden = false;
             hideLoading();
-            elements.messageInput.disabled = true;
-            elements.sendButton.disabled = true;
+            // elements.messageInput.disabled = true; // Text input disabled
+            // elements.sendButton.disabled = true; // Text input disabled
             elements.recordButton.disabled = true;
             elements.startButton.hidden = false;
             elements.stopButton.hidden = true;
@@ -679,6 +802,9 @@
             if (response.transcript) {
                 addMessage('Avatar', response.transcript);
             }
+            if (response.sources) {
+                updateSources(response.sources, response.isFallback);
+            }
 
             hideLoading();
             updateStatus('Connected', 'success');
@@ -696,46 +822,38 @@
     // Audio Recording Functions
     // ============================================
     
-    /**
-     * Check if getUserMedia is available and if the page is served securely
-     */
-    function checkMicrophoneAvailability() {
-        // Check if getUserMedia is available
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            return {
-                available: false,
-                error: 'getUserMedia API is not available in this browser. Please use a modern browser like Chrome, Firefox, or Edge.'
-            };
-        }
-
-        // Check if page is served over HTTPS or localhost
-        const isSecure = window.location.protocol === 'https:' || 
-                        window.location.hostname === 'localhost' || 
-                        window.location.hostname === '127.0.0.1' ||
-                        window.location.hostname === '[::1]';
+    // Helper function to get supported MediaRecorder mimeType
+    function getSupportedMimeType() {
+        const types = [
+            'audio/webm;codecs=opus',
+            'audio/webm',
+            'audio/ogg;codecs=opus',
+            'audio/ogg',
+            'audio/mp4',
+            'audio/mpeg'
+        ];
         
-        if (!isSecure) {
-            return {
-                available: false,
-                error: 'Microphone access requires HTTPS. Please access this page via HTTPS or use localhost.'
-            };
+        for (const type of types) {
+            if (MediaRecorder.isTypeSupported(type)) {
+                console.log('[RECORD] Using mimeType:', type);
+                return type;
+            }
         }
-
-        return { available: true };
+        
+        // Fallback: let browser choose
+        console.warn('[RECORD] No preferred mimeType found, using browser default');
+        return '';
     }
 
     async function startRecording() {
         try {
-            // First check if microphone access is available
-            const availabilityCheck = checkMicrophoneAvailability();
-            if (!availabilityCheck.available) {
-                addMessage('System', availabilityCheck.error, true);
-                isRecording = false;
-                elements.recordButton.disabled = false;
-                return;
+            // Check if MediaRecorder is supported
+            if (!window.MediaRecorder) {
+                throw new Error('MediaRecorder API is not supported in this browser. Please use Chrome, Edge, or Firefox.');
             }
 
             // Request microphone access
+            console.log('[RECORD] Requesting microphone access...');
             audioStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
                     channelCount: 1,
@@ -744,50 +862,65 @@
                     noiseSuppression: true
                 } 
             });
+            console.log('[RECORD] Microphone access granted');
 
-            // Create MediaRecorder - prefer formats that Whisper API handles best
-            // Try wav first (most compatible), then mp3, then webm, then browser default
-            let mimeType = '';
-            const preferredTypes = [
-                'audio/wav',
-                'audio/mp3',
-                'audio/mpeg',
-                'audio/webm;codecs=opus',
-                'audio/webm',
-                'audio/mp4',
-                'audio/m4a'
-            ];
-            
-            for (const type of preferredTypes) {
-                if (MediaRecorder.isTypeSupported(type)) {
-                    mimeType = type;
-                    console.log('[AUDIO] Using MIME type:', mimeType);
-                    break;
-                }
-            }
-            
-            if (!mimeType) {
-                console.warn('[AUDIO] No preferred MIME type supported, using browser default');
+            // Get supported mimeType
+            const mimeType = getSupportedMimeType();
+            const options = mimeType ? { mimeType: mimeType } : {};
+
+            // Create MediaRecorder with supported format
+            try {
+                mediaRecorder = new MediaRecorder(audioStream, options);
+                console.log('[RECORD] MediaRecorder created with options:', options);
+            } catch (recorderError) {
+                console.error('[RECORD] Failed to create MediaRecorder with options:', options, recorderError);
+                // Try without options (browser default)
+                mediaRecorder = new MediaRecorder(audioStream);
+                console.log('[RECORD] MediaRecorder created with browser default');
             }
 
-            const recorderOptions = mimeType ? { mimeType: mimeType } : {};
-            mediaRecorder = new MediaRecorder(audioStream, recorderOptions);
+            // Store the actual mimeType used
+            const actualMimeType = mediaRecorder.mimeType || 'audio/webm';
+            console.log('[RECORD] Actual MediaRecorder mimeType:', actualMimeType);
 
             audioChunks = [];
 
             mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
+                if (event.data && event.data.size > 0) {
+                    console.log('[RECORD] Data chunk received:', event.data.size, 'bytes');
                     audioChunks.push(event.data);
                 }
             };
 
+            mediaRecorder.onerror = (event) => {
+                console.error('[RECORD] MediaRecorder error:', event.error);
+                addMessage('System', `Recording error: ${event.error?.message || 'Unknown error'}`, true);
+                stopRecording();
+            };
+
             mediaRecorder.onstop = async () => {
-                // Create blob from recorded chunks
-                const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+                console.log('[RECORD] Recording stopped, chunks:', audioChunks.length);
+                
+                if (audioChunks.length === 0) {
+                    console.error('[RECORD] No audio chunks recorded!');
+                    addMessage('System', 'No audio was recorded. Please try again.', true);
+                    elements.recordButton.disabled = false;
+                    return;
+                }
+
+                // Create blob from recorded chunks using the actual mimeType
+                const audioBlob = new Blob(audioChunks, { type: actualMimeType });
+                console.log('[RECORD] Audio blob created:', {
+                    size: audioBlob.size,
+                    type: audioBlob.type
+                });
                 
                 // Stop audio stream
                 if (audioStream) {
-                    audioStream.getTracks().forEach(track => track.stop());
+                    audioStream.getTracks().forEach(track => {
+                        track.stop();
+                        console.log('[RECORD] Audio track stopped');
+                    });
                     audioStream = null;
                 }
 
@@ -795,8 +928,10 @@
                 await sendAudio(audioBlob);
             };
 
-            mediaRecorder.start();
+            // Start recording with timeslice to get chunks periodically
+            mediaRecorder.start(100); // Get chunks every 100ms
             isRecording = true;
+            console.log('[RECORD] Recording started');
             
             // Update UI
             elements.recordButton.innerHTML = '<i class="fas fa-stop me-2"></i>Stop';
@@ -806,36 +941,27 @@
             updateStatus('Recording...', 'warning');
 
         } catch (error) {
-            console.error('Error starting recording:', error);
+            console.error('[RECORD] Error starting recording:', error);
+            
+            // Provide user-friendly error messages
+            let errorMessage = error.message;
+            if (error.name === 'NotAllowedError') {
+                errorMessage = 'Microphone access denied. Please allow microphone access and try again.';
+            } else if (error.name === 'NotFoundError') {
+                errorMessage = 'No microphone found. Please connect a microphone and try again.';
+            } else if (error.name === 'NotSupportedError') {
+                errorMessage = 'Audio recording is not supported in this browser.';
+            }
+            
+            addMessage('System', `Error accessing microphone: ${errorMessage}`, true);
             isRecording = false;
             elements.recordButton.disabled = false;
             
-            // Provide specific error messages based on error type
-            let errorMessage = 'Error accessing microphone: ';
-            
-            if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-                errorMessage += 'Microphone permission denied. Please allow microphone access in your browser settings and try again.';
-            } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-                errorMessage += 'No microphone found. Please connect a microphone and try again.';
-            } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-                errorMessage += 'Microphone is already in use by another application. Please close other applications using the microphone and try again.';
-            } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
-                errorMessage += 'Microphone does not support the required settings. Trying with default settings...';
-                // Try again with default settings
-                try {
-                    audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    // Retry recording with default settings
-                    startRecording();
-                    return;
-                } catch (retryError) {
-                    errorMessage += ' Failed to access microphone even with default settings.';
-                }
-            } else {
-                errorMessage += error.message || 'Unknown error occurred.';
+            // Clean up if stream was created
+            if (audioStream) {
+                audioStream.getTracks().forEach(track => track.stop());
+                audioStream = null;
             }
-            
-            addMessage('System', errorMessage, true);
-            updateStatus('Microphone Error', 'danger');
         }
     }
 
@@ -861,96 +987,100 @@
             return;
         }
 
-        // Validate audio blob
         if (!audioBlob || audioBlob.size === 0) {
-            addMessage('System', 'No audio recorded. Please try recording again.', true);
+            console.error('[AUDIO] Audio blob is empty or invalid');
+            addMessage('System', 'No audio data to send. Please try recording again.', true);
             elements.recordButton.disabled = false;
-            updateStatus('Recording Error', 'danger');
-            return;
-        }
-
-        // Check minimum size (very small files are likely empty or corrupted)
-        if (audioBlob.size < 1000) { // Less than 1KB is suspicious
-            addMessage('System', 'Audio recording is too short or empty. Please record for at least 1-2 seconds.', true);
-            elements.recordButton.disabled = false;
-            updateStatus('Recording Error', 'danger');
             return;
         }
 
         try {
             showLoading('Processing audio...');
+            updateStatus('Sending audio...', 'warning');
             
             // Determine file extension based on blob type
-            // Match the actual MIME type used for recording
             let fileExtension = 'webm';
-            let fileName = 'recording.webm';
-            
-            if (audioBlob.type) {
-                if (audioBlob.type.includes('wav')) {
-                    fileExtension = 'wav';
-                    fileName = 'recording.wav';
-                } else if (audioBlob.type.includes('mp3') || audioBlob.type.includes('mpeg')) {
-                    fileExtension = 'mp3';
-                    fileName = 'recording.mp3';
-                } else if (audioBlob.type.includes('mp4')) {
-                    fileExtension = 'mp4';
-                    fileName = 'recording.mp4';
-                } else if (audioBlob.type.includes('m4a')) {
-                    fileExtension = 'm4a';
-                    fileName = 'recording.m4a';
-                } else if (audioBlob.type.includes('webm')) {
-                    fileExtension = 'webm';
-                    fileName = 'recording.webm';
-                } else {
-                    // Default to webm but log warning
-                    console.warn('[AUDIO] Unknown blob type:', audioBlob.type, '- using webm as default');
-                }
-            } else {
-                console.warn('[AUDIO] No blob type detected - using webm as default');
+            if (audioBlob.type.includes('ogg')) {
+                fileExtension = 'ogg';
+            } else if (audioBlob.type.includes('mp4') || audioBlob.type.includes('mpeg')) {
+                fileExtension = 'mp4';
+            } else if (audioBlob.type.includes('wav')) {
+                fileExtension = 'wav';
             }
             
-            console.log('[AUDIO] Sending audio blob:', {
-                type: audioBlob.type,
+            const fileName = `recording.${fileExtension}`;
+            console.log('[AUDIO] Preparing to send audio:', {
                 size: audioBlob.size,
-                fileName: fileName,
-                extension: fileExtension
+                type: audioBlob.type,
+                fileName: fileName
             });
             
-            // Create FormData
+            // Create FormData - ensure field names match backend expectations
             const formData = new FormData();
             formData.append('audio', audioBlob, fileName);
             formData.append('conversationId', sessionData.sessionId);
+            
             if (streamingToken) {
                 formData.append('streamingToken', streamingToken);
+                console.log('[AUDIO] Including streamingToken (length:', streamingToken.length, ')');
+            } else {
+                console.warn('[AUDIO] WARNING: streamingToken is missing!');
+            }
+
+            // Log FormData contents for debugging
+            console.log('[AUDIO] FormData contents:');
+            for (const [key, value] of formData.entries()) {
+                if (value instanceof File || value instanceof Blob) {
+                    console.log(`  ${key}: [Blob/File] size=${value.size}, type=${value.type}`);
+                } else {
+                    console.log(`  ${key}: ${value}`);
+                }
             }
 
             // Send to backend
             console.log('[API] Calling POST', `${API_BASE}/audio`, {
                 conversationId: sessionData.sessionId,
                 hasStreamingToken: !!streamingToken,
-                audioSize: audioBlob.size
+                audioSize: audioBlob.size,
+                audioType: audioBlob.type
             });
             
             const response = await fetch(`${API_BASE}/audio`, {
                 method: 'POST',
                 body: formData
+                // Note: Don't set Content-Type header - browser will set it with boundary for multipart/form-data
             });
 
             console.log('[API] /audio response status:', response.status, response.statusText);
 
             if (!response.ok) {
                 let errorMessage = `HTTP ${response.status}`;
+                let errorDetails = null;
+                
                 try {
                     const errorData = await response.json();
                     errorMessage = errorData.error || errorData.message || errorMessage;
+                    errorDetails = errorData;
+                    console.error('[API] /audio error response:', errorDetails);
                 } catch (e) {
-                    const errorText = await response.text();
-                    errorMessage = errorText || errorMessage;
+                    try {
+                        const errorText = await response.text();
+                        errorMessage = errorText || errorMessage;
+                        console.error('[API] /audio error text:', errorText);
+                    } catch (e2) {
+                        console.error('[API] /audio - could not parse error response');
+                    }
                 }
+                
                 throw new Error(errorMessage);
             }
 
             const data = await response.json();
+            console.log('[API] /audio success:', {
+                hasUserTranscript: !!data.userTranscript,
+                hasAvatarTranscript: !!data.avatarTranscript,
+                sourceCount: data.sources?.length || 0
+            });
 
             // Display user transcript
             if (data.userTranscript) {
@@ -962,12 +1092,22 @@
                 addMessage('Avatar', data.avatarTranscript);
             }
 
+            // Update sources
+            if (data.sources) {
+                updateSources(data.sources, data.isFallback);
+            }
 
             hideLoading();
             updateStatus('Connected', 'success');
 
         } catch (error) {
-            console.error('Error sending audio:', error);
+            console.error('[AUDIO] Error sending audio:', error);
+            console.error('[AUDIO] Error details:', {
+                name: error.name,
+                message: error.message,
+                stack: error.stack
+            });
+            
             addMessage('System', `Error: ${error.message}`, true);
             hideLoading();
             updateStatus('Error', 'danger');
@@ -977,6 +1117,27 @@
     }
 
     function toggleRecording() {
+        // Prefer browser speech recognition if available
+        if (recognition) {
+            console.log('[STT] Using Web Speech API for speech-to-text');
+            try {
+                elements.recordButton.disabled = true;
+                elements.recordButton.innerHTML = '<i class="fas fa-microphone me-2"></i>Listening...';
+                elements.recordButton.classList.remove('btn-info');
+                elements.recordButton.classList.add('btn-danger');
+                elements.recordingStatus.hidden = false;
+                updateStatus('Listening...', 'warning');
+                recognition.start();
+            } catch (err) {
+                console.error('[STT] Error starting recognition, falling back to MediaRecorder:', err);
+                // Fall through to existing MediaRecorder path
+            }
+
+            // If recognition started successfully, stop here
+            return;
+        }
+
+        // Fallback: existing MediaRecorder + Whisper pipeline
         if (!isRecording) {
             startRecording();
         } else {
@@ -989,14 +1150,16 @@
     // ============================================
     elements.startButton.addEventListener('click', startSession);
     elements.stopButton.addEventListener('click', stopSessionHandler);
-    elements.sendButton.addEventListener('click', sendMessage);
+    // Text input disabled - voice only
+    // elements.sendButton.addEventListener('click', sendMessage);
     elements.recordButton.addEventListener('click', toggleRecording);
-    elements.messageInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey && isSessionActive) {
-            e.preventDefault();
-            sendMessage();
-        }
-    });
+    // Text input disabled - voice only
+    // elements.messageInput.addEventListener('keypress', (e) => {
+    //     if (e.key === 'Enter' && !e.shiftKey && isSessionActive) {
+    //         e.preventDefault();
+    //         sendMessage();
+    //     }
+    // });
 
     // Cleanup on page unload
     window.addEventListener('beforeunload', async () => {
@@ -1039,4 +1202,3 @@
 })();
 </script>
 }
-

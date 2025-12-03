@@ -94,37 +94,48 @@ namespace ERSimulatorApp.Controllers
         {
             try
             {
+                _logger.LogInformation("ProcessAudio called - ContentType: {ContentType}, HasFormContentType: {HasForm}, Files.Count: {FileCount}",
+                    Request.ContentType, Request.HasFormContentType, Request.Form.Files.Count);
+
                 if (string.IsNullOrWhiteSpace(conversationId))
                 {
+                    _logger.LogWarning("ProcessAudio: conversationId is missing or empty");
                     return BadRequest(new { error = "Conversation ID is required" });
                 }
 
                 // Check if request contains audio file
-                if (!Request.HasFormContentType || Request.Form.Files.Count == 0)
+                if (!Request.HasFormContentType)
                 {
+                    _logger.LogWarning("ProcessAudio: Request does not have form content type. ContentType: {ContentType}", Request.ContentType);
+                    return BadRequest(new { error = "Request must be multipart/form-data" });
+                }
+
+                if (Request.Form.Files.Count == 0)
+                {
+                    _logger.LogWarning("ProcessAudio: No files in request. Form keys: {FormKeys}", string.Join(", ", Request.Form.Keys));
                     return BadRequest(new { error = "Audio file is required" });
                 }
 
                 var audioFile = Request.Form.Files[0];
                 if (audioFile == null || audioFile.Length == 0)
                 {
+                    _logger.LogWarning("ProcessAudio: Audio file is null or empty. FileName: {FileName}, Length: {Length}",
+                        audioFile?.FileName, audioFile?.Length);
                     return BadRequest(new { error = "Audio file is empty" });
                 }
 
-                _logger.LogInformation("Processing audio input for session {SessionId}, file: {FileName}, size: {Size} bytes, content type: {ContentType}", 
-                    conversationId, audioFile.FileName, audioFile.Length, audioFile.ContentType);
+                _logger.LogInformation("Processing audio input for session {SessionId}, file: {FileName}, size: {Size} bytes, contentType: {ContentType}, streamingToken length: {TokenLength}",
+                    conversationId, audioFile.FileName, audioFile.Length, audioFile.ContentType, streamingToken?.Length ?? 0);
 
-                // Validate file size (minimum 1KB, maximum 25MB for Whisper API)
-                if (audioFile.Length < 1024)
+                // Validate streaming token early
+                if (string.IsNullOrWhiteSpace(streamingToken))
                 {
-                    _logger.LogWarning("Audio file is too small: {Size} bytes", audioFile.Length);
-                    return BadRequest(new { error = "Audio recording is too short. Please record for at least 1-2 seconds." });
-                }
-
-                if (audioFile.Length > 25 * 1024 * 1024) // 25MB limit
-                {
-                    _logger.LogWarning("Audio file is too large: {Size} bytes", audioFile.Length);
-                    return BadRequest(new { error = "Audio file is too large. Maximum size is 25MB." });
+                    _logger.LogError("ProcessAudio: Streaming token is REQUIRED for audio processing - token from session creation must be reused. Session ID: {SessionId}", conversationId);
+                    return StatusCode(400, new
+                    {
+                        success = false,
+                        error = "Streaming token is required - session may have been created incorrectly"
+                    });
                 }
 
                 // Step 1: Transcribe audio using Whisper ASR
@@ -137,26 +148,15 @@ namespace ERSimulatorApp.Controllers
                     
                     if (string.IsNullOrWhiteSpace(transcript))
                     {
-                        _logger.LogWarning("Whisper returned empty transcript for file: {FileName}, size: {Size} bytes", 
-                            audioFile.FileName, audioFile.Length);
-                        return BadRequest(new { error = "Could not transcribe audio. The recording may be too quiet, too short, or contain no speech. Please try again." });
+                        _logger.LogWarning("Whisper returned empty transcript");
+                        return BadRequest(new { error = "Could not transcribe audio. Please try again." });
                     }
 
                     _logger.LogInformation("Audio transcribed successfully: {Transcript}", transcript);
                 }
-                catch (HttpRequestException httpEx)
-                {
-                    _logger.LogError(httpEx, "HTTP error transcribing audio with Whisper: {Message}", httpEx.Message);
-                    return StatusCode(500, new
-                    {
-                        success = false,
-                        error = "Failed to transcribe audio",
-                        message = httpEx.Message
-                    });
-                }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error transcribing audio with Whisper: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
+                    _logger.LogError(ex, "Error transcribing audio with Whisper");
                     return StatusCode(500, new
                     {
                         success = false,
@@ -173,6 +173,19 @@ namespace ERSimulatorApp.Controllers
                     ragResponse = await _llmService.GetResponseAsync(transcript);
                     _logger.LogInformation("RAG database returned response with {SourceCount} medical source references", 
                         ragResponse.Sources?.Count ?? 0);
+                    
+                    // Remove sources section from response text for avatar (sources are embedded in text)
+                    if (!string.IsNullOrEmpty(ragResponse.Response))
+                    {
+                        // Remove the "📚 Sources:" section and everything after it
+                        var sourcesMarker = "\n\n📚 Sources:\n";
+                        var sourcesIndex = ragResponse.Response.IndexOf(sourcesMarker, StringComparison.OrdinalIgnoreCase);
+                        if (sourcesIndex >= 0)
+                        {
+                            ragResponse.Response = ragResponse.Response.Substring(0, sourcesIndex).TrimEnd();
+                            _logger.LogInformation("Removed sources section from avatar response text");
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -261,19 +274,23 @@ namespace ERSimulatorApp.Controllers
                         success = false,
                         error = "Failed to send message to avatar, but received response from knowledge base",
                         message = ex.Message,
-                        transcript = ragResponse.Response,
-                    sources = new List<ChatSourceLink>(),
+                        transcript = RemoveSourcesSection(ragResponse.Response ?? string.Empty),
+                        sources = new List<ChatSourceLink>(), // Empty sources for avatar
                         isFallback = false
                     });
                 }
 
-                // Step 5: Return success with transcript
+                // Step 5: Return success with transcript (sources disabled for avatar)
+                // Avatar interactions don't show sources - only chat page does
+                // Remove sources section from response text before returning
+                var cleanAvatarTranscript = RemoveSourcesSection(ragResponse.Response ?? string.Empty);
+                
                 return Ok(new
                 {
                     success = true,
                     userTranscript = transcript,
-                    avatarTranscript = ragResponse.Response,
-                    sources = new List<ChatSourceLink>(),
+                    avatarTranscript = cleanAvatarTranscript,
+                    sources = new List<ChatSourceLink>(), // Empty sources for avatar
                     isFallback = false
                 });
             }
@@ -404,18 +421,22 @@ namespace ERSimulatorApp.Controllers
                         success = false,
                         error = "Failed to send message to avatar, but received response from knowledge base",
                         message = ex.Message,
-                        transcript = ragResponse.Response,
-                    sources = new List<ChatSourceLink>(),
+                        transcript = RemoveSourcesSection(ragResponse.Response ?? string.Empty),
+                        sources = new List<ChatSourceLink>(), // Empty sources for avatar
                         isFallback = false
                     });
                 }
 
-                // Step 3: Return success with RAG response
+                // Step 3: Return success with RAG response (sources disabled for avatar)
+                // Avatar interactions don't show sources - only chat page does
+                // Remove sources section from response text before returning
+                var cleanTranscript = RemoveSourcesSection(ragResponse.Response ?? string.Empty);
+                
                 return Ok(new
                 {
                     success = true,
-                    transcript = ragResponse.Response,
-                    sources = new List<ChatSourceLink>(),
+                    transcript = cleanTranscript,
+                    sources = new List<ChatSourceLink>(), // Empty sources for avatar
                     isFallback = false
                 });
             }
@@ -493,23 +514,35 @@ namespace ERSimulatorApp.Controllers
         {
             if (string.IsNullOrWhiteSpace(sourceFilename))
             {
+                _logger.LogDebug("BuildSourceUrl: sourceFilename is null or empty");
                 return string.Empty;
             }
 
             var safeFileName = Path.GetFileName(sourceFilename);
             if (string.IsNullOrWhiteSpace(safeFileName))
             {
+                _logger.LogDebug("BuildSourceUrl: safeFileName is null or empty for {SourceFilename}", sourceFilename);
                 return string.Empty;
             }
 
             var filePath = Path.Combine(_sourceDocumentsPath, safeFileName);
             if (!System.IO.File.Exists(filePath))
             {
-                _logger.LogDebug("Skipping source link because file was not found: {File}", filePath);
-                return string.Empty;
+                _logger.LogWarning("BuildSourceUrl: File not found at {FilePath}, but still creating URL for source: {SafeFileName}", 
+                    filePath, safeFileName);
+                // Still create the URL even if file doesn't exist - the file might be in a different location
+                // or the URL might work anyway
             }
 
-            return Url.Action("GetSourceFile", "Chat", new { filename = safeFileName }) ?? string.Empty;
+            var url = Url.Action("GetSourceFile", "Chat", new { filename = safeFileName });
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                _logger.LogWarning("BuildSourceUrl: Url.Action returned null for filename: {SafeFileName}", safeFileName);
+                return string.Empty;
+            }
+            
+            _logger.LogDebug("BuildSourceUrl: Created URL {Url} for filename: {SafeFileName}", url, safeFileName);
+            return url;
         }
 
         /// <summary>

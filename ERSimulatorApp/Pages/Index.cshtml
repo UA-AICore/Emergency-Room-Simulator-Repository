@@ -12,7 +12,7 @@
 <div class="container-fluid h-100 py-4">
     <div class="row h-100 g-4">
         <!-- Chat Interface -->
-        <div class="col-12 d-flex flex-column">
+        <div class="col-lg-8 d-flex flex-column">
             <div class="chat-container flex-grow-1 d-flex flex-column">
                 <!-- Chat Header -->
                 <div class="chat-header">
@@ -55,7 +55,7 @@
                         </p>
                         <p class="text-muted small mt-3">
                             <i class="fas fa-info-circle me-1"></i>
-                            Powered by MedGemma 4B with RAG-enhanced medical knowledge
+                            Powered by Llama-3.2-1B with RAG-enhanced medical knowledge
                         </p>
                     </div>
                 </div>
@@ -77,7 +77,7 @@
                         </small>
                         <small class="text-muted">
                             <i class="fas fa-book-medical me-1"></i>
-                            RAG-powered with 9 trauma documents
+                            RAG-powered with trauma documents
                         </small>
                     </div>
                 </div>
@@ -110,18 +110,40 @@
                 </div>
             </div>
         </div>
+
+        <!-- Sources Panel -->
+        <div class="col-lg-4">
+            <div class="logs-panel sources-panel h-100 d-flex flex-column">
+                <div class="sources-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-link me-2"></i>
+                        Reference Sources
+                    </h5>
+                    <p class="text-white-50 small mb-0">
+                        Materials referenced by the AI in its answer.
+                    </p>
+                </div>
+                <div class="sources-body" id="sourcesContainer">
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
+                        <p>No sources yet</p>
+                        <p class="small">Ask a question to see cited references.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
 <!-- Loading Modal -->
-<div class="modal fade" id="loadingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+<div class="modal fade" id="loadingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="loadingModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-body text-center">
-                <div class="spinner-border text-primary mb-3" role="status">
+                <div class="spinner-border text-primary mb-3" role="status" aria-hidden="true">
                     <span class="visually-hidden">Loading...</span>
                 </div>
-                <p>AI is thinking...</p>
+                <p id="loadingModalLabel">AI is thinking...</p>
             </div>
         </div>
     </div>
@@ -186,8 +208,9 @@
         const chatMessages = document.getElementById('chatMessages');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
-                const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
-                const quizModal = new bootstrap.Modal(document.getElementById('quizModal'));
+        const loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+        const sourcesContainer = document.getElementById('sourcesContainer');
+        const quizModal = new bootstrap.Modal(document.getElementById('quizModal'));
         const quizForm = document.getElementById('quizForm');
         const openQuizButton = document.getElementById('openQuizButton');
         const quizContainer = document.getElementById('quizContainer');
@@ -206,7 +229,12 @@
             addMessageToChat(message, 'user');
             messageInput.value = '';
             
-            // Show loading
+            // Show loading modal
+            // Remove aria-hidden before showing to avoid accessibility warnings
+            const loadingModalEl = document.getElementById('loadingModal');
+            if (loadingModalEl) {
+                loadingModalEl.removeAttribute('aria-hidden');
+            }
             loadingModal.show();
             
             try {
@@ -227,17 +255,107 @@
                 
                 const data = await response.json();
                 
+                // Debug logging
+                console.log('[Chat] Full response data:', data);
+                console.log('[Chat] Sources in response:', data.sources);
+                console.log('[Chat] Sources count:', (data.sources || []).length);
+                console.log('[Chat] IsFallback:', data.isFallback);
+                console.log('[Chat] Response text length:', (data.response || '').length);
+                
                 // Add AI response to chat
-                addMessageToChat(data.response, 'ai');
+                addMessageToChat(data.response || '', 'ai');
+                
+                // Update sources panel
+                const sources = data.sources || [];
+                const isFallback = Boolean(data.isFallback);
+                console.log('[Chat] Updating sources panel with:', { sourcesCount: sources.length, isFallback, sources });
+                updateSources(sources, isFallback);
                 
             } catch (error) {
                 console.error('Error:', error);
                 addMessageToChat('Sorry, I encountered an error. Please try again.', 'ai', true);
             } finally {
                 loadingModal.hide();
+                // Set aria-hidden after hiding to properly manage accessibility
+                const loadingModalEl = document.getElementById('loadingModal');
+                if (loadingModalEl) {
+                    loadingModalEl.setAttribute('aria-hidden', 'true');
+                }
             }
         }
 
+        function updateSources(sources, isFallback) {
+            console.log('[Sources] updateSources called:', { sourcesCount: sources?.length || 0, isFallback, sources });
+            sourcesContainer.innerHTML = '';
+
+            if (isFallback) {
+                console.log('[Sources] Showing fallback message');
+                sourcesContainer.innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-plug-circle-exclamation fa-3x mb-3" style="color: #ea580c;"></i>
+                        <p>Reference services are offline.</p>
+                        <p class="small">The RAG service may be temporarily unavailable. Please try again later.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (!sources || sources.length === 0) {
+                console.log('[Sources] No sources to display');
+                sourcesContainer.innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
+                        <p>No sources yet</p>
+                        <p class="small">Ask a question to see cited references.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            console.log('[Sources] Processing', sources.length, 'sources');
+            sources.forEach((source, index) => {
+                console.log(`[Sources] Processing source ${index + 1}:`, source);
+                if (!source) {
+                    console.warn('[Sources] Skipping null source');
+                    return;
+                }
+                
+                if (!source.url) {
+                    console.warn('[Sources] Source missing URL:', { title: source.title, preview: source.preview });
+                    // Still show the source even without URL - user can see what was referenced
+                    // Just don't make it clickable
+                }
+
+                const entry = document.createElement('div');
+                entry.className = 'source-entry';
+
+                const titleRow = document.createElement('div');
+                titleRow.className = 'd-flex align-items-center justify-content-between gap-2 mb-2';
+
+                // Always show title as plain text (non-clickable)
+                const titleSpan = document.createElement('span');
+                titleSpan.className = 'source-link';
+                titleSpan.style.cursor = 'default';
+                titleSpan.style.color = 'inherit';
+                titleSpan.textContent = source.title || 'Reference material';
+                titleRow.appendChild(titleSpan);
+                
+                entry.appendChild(titleRow);
+
+                if (source.preview) {
+                    const preview = document.createElement('p');
+                    preview.className = 'source-preview';
+                    preview.textContent = source.preview;
+                    entry.appendChild(preview);
+                }
+
+                // Sources are displayed for reference only - no links to open documents
+                // Removed "Open source document" hint
+
+                sourcesContainer.appendChild(entry);
+            });
+        }
+        
         // Add message to chat display
         function addMessageToChat(message, sender, isError = false) {
             // Remove welcome screen if it exists

@@ -79,14 +79,60 @@ namespace ERSimulatorApp.Controllers
 
                 _logService.LogChat(logEntry);
 
+                // Build source links with improved logging
+                var sourceLinks = aiResponse.Sources
+                    .Select(source =>
+                    {
+                        var url = BuildSourceUrl(source.Filename);
+                        var link = new ChatSourceLink
+                        {
+                            Title = string.IsNullOrWhiteSpace(source.Title)
+                                ? Path.GetFileName(source.Filename) ?? "Source"
+                                : source.Title,
+                            Preview = source.Preview,
+                            Similarity = source.Similarity,
+                            Url = url
+                        };
+                        
+                        // Log source link creation for debugging
+                        _logger.LogInformation("Source link created: Title={Title}, HasUrl={HasUrl}, Filename={Filename}",
+                            link.Title, !string.IsNullOrWhiteSpace(url), source.Filename);
+                        
+                        return link;
+                    })
+                    .ToList();
+                
+                var sourcesWithUrls = sourceLinks.Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList();
+                var sourcesWithoutUrls = sourceLinks.Where(link => string.IsNullOrWhiteSpace(link.Url)).ToList();
+                
+                _logger.LogInformation("Returning {Total} source links - {WithUrls} with URLs, {WithoutUrls} without URLs",
+                    sourceLinks.Count,
+                    sourcesWithUrls.Count,
+                    sourcesWithoutUrls.Count);
+                
+                // Log details about sources without URLs for debugging
+                if (sourcesWithoutUrls.Count > 0)
+                {
+                    _logger.LogWarning("Sources without URLs (will be filtered out):");
+                    foreach (var source in sourcesWithoutUrls)
+                    {
+                        _logger.LogWarning("  - Title: {Title}, Filename: {Filename}", source.Title, 
+                            aiResponse.Sources.FirstOrDefault(s => Path.GetFileName(s.Filename) == source.Title)?.Filename ?? "unknown");
+                    }
+                }
+                
                 var response = new ChatResponse
                 {
                     Response = aiResponse.Response,
                     SessionId = request.SessionId,
                     Timestamp = endTime,
                     IsFallback = aiResponse.IsFallback,
-                    Sources = new List<ChatSourceLink>()
+                    Sources = sourceLinks
                 };
+                
+                // Log the actual response being sent
+                _logger.LogInformation("ChatResponse being sent - Response length: {Length}, Sources count: {Count}, IsFallback: {Fallback}",
+                    response.Response?.Length ?? 0, response.Sources.Count, response.IsFallback);
 
                 _logger.LogInformation($"Chat response generated in {responseTime.TotalMilliseconds}ms");
                 return Ok(response);
@@ -159,23 +205,35 @@ namespace ERSimulatorApp.Controllers
         {
             if (string.IsNullOrWhiteSpace(sourceFilename))
             {
+                _logger.LogDebug("BuildSourceUrl: sourceFilename is null or empty");
                 return string.Empty;
             }
 
             var safeFileName = Path.GetFileName(sourceFilename);
             if (string.IsNullOrWhiteSpace(safeFileName))
             {
+                _logger.LogDebug("BuildSourceUrl: safeFileName is null or empty for {SourceFilename}", sourceFilename);
                 return string.Empty;
             }
 
             var filePath = Path.Combine(_sourceDocumentsPath, safeFileName);
             if (!System.IO.File.Exists(filePath))
             {
-                _logger.LogDebug("Skipping source link because file was not found: {File}", filePath);
-                return string.Empty;
+                _logger.LogWarning("BuildSourceUrl: File not found at {FilePath}, but still creating URL for source: {SafeFileName}", 
+                    filePath, safeFileName);
+                // Still create the URL even if file doesn't exist - the file might be in a different location
+                // or the URL might work anyway
             }
 
-            return Url.Action(nameof(GetSourceFile), new { filename = safeFileName }) ?? string.Empty;
+            var url = Url.Action(nameof(GetSourceFile), new { filename = safeFileName });
+            if (string.IsNullOrWhiteSpace(url))
+            {
+                _logger.LogWarning("BuildSourceUrl: Url.Action returned null for filename: {SafeFileName}", safeFileName);
+                return string.Empty;
+            }
+            
+            _logger.LogDebug("BuildSourceUrl: Created URL {Url} for filename: {SafeFileName}", url, safeFileName);
+            return url;
         }
 
         private static string GetContentType(string filePath)

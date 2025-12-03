@@ -1,28 +1,18 @@
 using ERSimulatorApp.Services;
-using Microsoft.AspNetCore.HttpOverrides;
+using Newtonsoft.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
-
-// Add environment variables to configuration (for production secrets)
-builder.Configuration.AddEnvironmentVariables();
-
-// Add forwarded headers middleware to handle reverse proxy scenarios
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
-{
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor |
-                              ForwardedHeaders.XForwardedProto;
-    // Honor path base from reverse proxy
-    options.ForwardedPrefixHeaderName = "X-Forwarded-Prefix";
-    options.KnownNetworks.Clear();
-    options.KnownProxies.Clear();
-});
 
 // Add services to the container.
 builder.Services.AddRazorPages();
 
-// Add API controllers
+// Add API controllers with camelCase JSON serialization
 builder.Services.AddControllers()
-    .AddNewtonsoftJson();
+    .AddNewtonsoftJson(options =>
+    {
+        options.SerializerSettings.ContractResolver = new CamelCasePropertyNamesContractResolver();
+        options.SerializerSettings.NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore;
+    });
 
 // Register our custom services
 var llmTimeout = builder.Configuration.GetValue<int?>("Ollama:TimeoutSeconds") ?? 60;
@@ -88,16 +78,6 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
-
-// Use forwarded headers middleware (must be early in pipeline)
-app.UseForwardedHeaders();
-
-// Configure path base from environment variable
-var pathBase = builder.Configuration["ASPNETCORE_PATHBASE"];
-if (!string.IsNullOrEmpty(pathBase))
-{
-    app.UsePathBase(pathBase);
-}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

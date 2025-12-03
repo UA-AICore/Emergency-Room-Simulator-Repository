@@ -48,22 +48,13 @@ namespace ERSimulatorApp.Controllers
         {
             try
             {
-                // Get Ollama endpoint from configuration (supports environment variables)
-                var ollamaEndpoint = _configuration["Ollama:Endpoint"];
-                if (string.IsNullOrEmpty(ollamaEndpoint))
-                {
-                    return new { status = "not_configured", message = "Ollama endpoint not configured" };
-                }
-
-                // Extract base URL from endpoint (remove /api/generate if present)
-                var baseUrl = ollamaEndpoint.Replace("/api/generate", "").TrimEnd('/');
                 using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-                var response = await httpClient.GetAsync($"{baseUrl}/api/tags");
+                var response = await httpClient.GetAsync("http://127.0.0.1:11434/api/tags");
                 return new { status = response.IsSuccessStatusCode ? "up" : "down", statusCode = (int)response.StatusCode };
             }
             catch
             {
-                return new { status = "down", error = "Connection refused or service unavailable" };
+                return new { status = "down", error = "Connection refused" };
             }
         }
 
@@ -72,23 +63,15 @@ namespace ERSimulatorApp.Controllers
             try
             {
                 using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-                var ragBaseUrl = _configuration["RAG:BaseUrl"];
+                var ragBaseUrl = _configuration["RAG:BaseUrl"] ?? "https://unchid-promonopoly-tiera.ngrok-free.dev";
                 
-                if (string.IsNullOrEmpty(ragBaseUrl))
-                {
-                    return new { status = "not_configured", message = "RAG BaseUrl not configured" };
-                }
-
-                // Extract base URL (remove /v1/chat/completions if present)
-                var healthCheckUrl = ragBaseUrl.Replace("/v1/chat/completions", "").TrimEnd('/');
-                
-                // Add ngrok header to bypass browser warning page if needed
-                if (healthCheckUrl.Contains("ngrok-free.dev"))
+                // Add ngrok header to bypass browser warning page
+                if (ragBaseUrl.Contains("ngrok-free.dev"))
                 {
                     httpClient.DefaultRequestHeaders.Add("ngrok-skip-browser-warning", "true");
                 }
                 
-                var response = await httpClient.GetAsync($"{healthCheckUrl}/health");
+                var response = await httpClient.GetAsync($"{ragBaseUrl}/health");
                 if (response.IsSuccessStatusCode)
                 {
                     var content = await response.Content.ReadAsStringAsync();

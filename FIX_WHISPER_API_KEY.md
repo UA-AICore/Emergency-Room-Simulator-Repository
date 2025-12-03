@@ -72,3 +72,6 @@ If valid, you'll see a list of models. If invalid, you'll see an error.
 
 Once you update the API key, the transcription should work! The audio recording is already working perfectly on the browser side.
 
+
+
+

@@ -69,7 +69,7 @@ namespace ERSimulatorApp.Services
                         new { role = "user", content = personalityPrompt }
                     },
                     temperature = 0.7,
-                    max_tokens = 1500  // Reduced for faster response
+                    max_tokens = 1500  // Allow detailed explanations for regular responses
                 };
 
                 var json = JsonSerializer.Serialize(requestBody);

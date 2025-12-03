@@ -23,6 +23,3 @@ public class LogsModel : PageModel
 
 
 
-
-
-
