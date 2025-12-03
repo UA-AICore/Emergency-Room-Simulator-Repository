@@ -43,7 +43,7 @@
 
         async function loadRecentLogs() {
             try {
-                const response = await fetch('/api/chat/logs?count=20');
+                const response = await fetch(`${window.APP_BASE_PATH || ''}/api/chat/logs?count=20`);
                 if (!response.ok) {
                     throw new Error('Failed to load logs');
                 }

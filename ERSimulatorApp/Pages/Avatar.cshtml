@@ -127,7 +127,7 @@
     // ============================================
     // Configuration & State
     // ============================================
-    const API_BASE = '/api/avatar/v2/streaming';
+    const API_BASE = `${window.APP_BASE_PATH || ''}/api/avatar/v2/streaming`;
     let liveKitRoom = null;
     let sessionData = null;
     let streamingToken = null; // Cache the token used to create the session
@@ -1181,11 +1181,8 @@
     console.log('[INIT] Use checkVideoState() in console to debug video element');
     console.log('[INIT] Use forceVideoVisible() in console to force video visibility for testing');
     
-    // Verify API endpoint is reachable
-    console.log('[INIT] Testing API endpoint availability...');
-    fetch(`${API_BASE}/session/create`, { method: 'OPTIONS' })
-        .then(() => console.log('[INIT] API endpoint is reachable'))
-        .catch(err => console.warn('[INIT] API endpoint test failed (this is OK):', err));
+    // API endpoint availability will be verified when user clicks "Start Session"
+    // Removed OPTIONS check to avoid 405 errors - actual POST requests work correctly
     
     // Periodically check video state (for debugging)
     setInterval(() => {

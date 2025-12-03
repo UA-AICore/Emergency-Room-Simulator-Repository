@@ -89,11 +89,19 @@ namespace ERSimulatorApp.Services
     public class ChatLogService
     {
         private readonly string _logFilePath;
+        private readonly ILogger<ChatLogService>? _logger;
         private readonly object _lockObject = new object();
 
-        public ChatLogService()
+        public ChatLogService(ILogger<ChatLogService>? logger = null)
         {
-            _logFilePath = Path.Combine(Directory.GetCurrentDirectory(), "chat_logs.txt");
+            _logger = logger;
+            // Use /app/data for persistent storage (required for container deployments)
+            var dataDir = "/app/data";
+            if (!Directory.Exists(dataDir))
+            {
+                Directory.CreateDirectory(dataDir);
+            }
+            _logFilePath = Path.Combine(dataDir, "chat_logs.txt");
         }
 
         public void LogChat(ChatLogEntry entry)
@@ -106,6 +114,10 @@ namespace ERSimulatorApp.Services
                              $"Response Time: {entry.ResponseTime.TotalMilliseconds}ms\n" +
                              "---\n";
                 
+                // Write to console (stdout) for platform logging system
+                _logger?.LogInformation("Chat Log:\n{LogLine}", logLine);
+                
+                // Also write to persistent file in /app/data for GetRecentLogs functionality
                 File.AppendAllText(_logFilePath, logLine);
             }
         }

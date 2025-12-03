@@ -51,6 +51,12 @@
     <script src="~/lib/jquery/dist/jquery.min.js"></script>
     <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
+    
+    @* Set base path for API calls to work with reverse proxy path base *@
+    <script>
+        // Get the base path from the current page URL or use empty string for root
+        window.APP_BASE_PATH = '@Context.Request.PathBase';
+    </script>
 
     @await RenderSectionAsync("Scripts", required: false)
 </body>

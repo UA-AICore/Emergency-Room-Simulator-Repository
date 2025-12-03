@@ -1,7 +1,10 @@
 using ERSimulatorApp.Services;
 using Newtonsoft.Json.Serialization;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Forwarded headers will be configured inline in the middleware pipeline
 
 // Add services to the container.
 builder.Services.AddRazorPages();
@@ -37,7 +40,11 @@ builder.Services.AddHttpClient<ICharacterGateway, CharacterGatewayService>(clien
 // Register the combined service with personality layer
 builder.Services.AddTransient<ILLMService, RAGWithPersonalityService>();
 
-builder.Services.AddSingleton<ChatLogService>();
+builder.Services.AddSingleton<ChatLogService>(sp =>
+{
+    var logger = sp.GetRequiredService<ILogger<ChatLogService>>();
+    return new ChatLogService(logger);
+});
 builder.Services.AddSingleton<ICustomGPTService>(sp =>
 {
     var logger = sp.GetRequiredService<ILogger<CustomGPTService>>();
@@ -79,6 +86,38 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Use forwarded headers middleware (must be early in pipeline)
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+});
+
+// Custom middleware to handle X-Forwarded-Prefix header and set path base
+// This must be done BEFORE UseStaticFiles() and other middleware
+app.Use(async (ctx, next) =>
+{
+    // Read X-Forwarded-Prefix header from reverse proxy
+    var prefixHeader = ctx.Request.Headers["X-Forwarded-Prefix"].FirstOrDefault();
+    if (!string.IsNullOrEmpty(prefixHeader))
+    {
+        // Normalize the prefix (ensure it starts with / and doesn't end with /)
+        var normalizedPrefix = prefixHeader.Trim();
+        if (!normalizedPrefix.StartsWith("/"))
+        {
+            normalizedPrefix = "/" + normalizedPrefix;
+        }
+        if (normalizedPrefix.EndsWith("/") && normalizedPrefix.Length > 1)
+        {
+            normalizedPrefix = normalizedPrefix.TrimEnd('/');
+        }
+        
+        // Set PathBase on the request context
+        // This ensures static files, URL generation, and routing all use the correct base path
+        ctx.Request.PathBase = new PathString(normalizedPrefix);
+    }
+    await next();
+});
+
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
@@ -88,7 +127,13 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
-app.UseStaticFiles();
+
+// Configure static files to respect PathBase set by middleware
+app.UseStaticFiles(new StaticFileOptions
+{
+    // Static files will automatically use Request.PathBase set by our middleware
+    // This ensures files are served from the correct path (e.g., /er-simulator/css/site.css)
+});
 
 app.UseRouting();
 
