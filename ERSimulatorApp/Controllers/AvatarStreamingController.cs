@@ -261,17 +261,14 @@ namespace ERSimulatorApp.Controllers
                     });
                 }
 
+                // When RAG is offline, still send a fallback message to HeyGen so the avatar shows and speaks
+                var textToSend = ragResponse.IsFallback
+                    ? "I'm Dr. Dexter. My reference database is temporarily unavailable. You can still see me here—please try again in a moment."
+                    : RemoveSourcesSection(ragResponse.Response ?? string.Empty);
+
                 if (ragResponse.IsFallback)
                 {
-                    _logger.LogWarning("RAG service is offline");
-                    return StatusCode(503, new
-                    {
-                        success = false,
-                        error = "Reference services are offline",
-                        transcript = "I'm sorry, my reference services are offline right now. Please try again later.",
-                        sources = new List<ChatSourceLink>(),
-                        isFallback = true
-                    });
+                    _logger.LogWarning("RAG service is offline; sending fallback message to HeyGen so avatar still appears.");
                 }
 
                 // Step 3: Start the session if not already started
@@ -303,9 +300,6 @@ namespace ERSimulatorApp.Controllers
                     _logger.LogInformation("Using streaming token from session creation (token length: {Length}, session: {SessionId})", 
                         streamingToken.Length, conversationId);
 
-                    // Remove sources section from response before sending to HeyGen
-                    var textToSend = RemoveSourcesSection(ragResponse.Response ?? string.Empty);
-                    
                     if (string.IsNullOrWhiteSpace(textToSend))
                     {
                         _logger.LogError("Text to send to HeyGen is empty after removing sources section!");
@@ -382,9 +376,9 @@ namespace ERSimulatorApp.Controllers
                 {
                     success = true,
                     userTranscript = transcript,
-                    avatarTranscript = ragResponse.Response,
+                    avatarTranscript = ragResponse.IsFallback ? textToSend : ragResponse.Response,
                     sources = sourceLinks.Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList(),
-                    isFallback = false
+                    isFallback = ragResponse.IsFallback
                 });
             }
             catch (Exception ex)
@@ -429,17 +423,14 @@ namespace ERSimulatorApp.Controllers
                 _logger.LogInformation("RAG database returned response with {SourceCount} medical source references", 
                     ragResponse.Sources?.Count ?? 0);
 
+                // When RAG is offline, still send a fallback message to HeyGen so the avatar shows and speaks
+                var textToSendTask = ragResponse.IsFallback
+                    ? "I'm Dr. Dexter. My reference database is temporarily unavailable. You can still see me here—please try again in a moment."
+                    : RemoveSourcesSection(ragResponse.Response ?? string.Empty);
+
                 if (ragResponse.IsFallback)
                 {
-                    _logger.LogWarning("RAG service is offline");
-                    return StatusCode(503, new
-                    {
-                        success = false,
-                        error = "Reference services are offline",
-                        transcript = "I'm sorry, my reference services are offline right now. Please try again later.",
-                        sources = new List<ChatSourceLink>(),
-                        isFallback = true
-                    });
+                    _logger.LogWarning("RAG service is offline; sending fallback message to HeyGen so avatar still appears.");
                 }
 
                 // Step 2: Start the session if not already started (required before sending tasks)
@@ -453,34 +444,20 @@ namespace ERSimulatorApp.Controllers
                     // Continue - session might already be started
                 }
 
-                // Step 3: Send to HeyGen for avatar speech
+                // Step 3: Send to HeyGen for avatar speech (uses textToSendTask: RAG response or fallback)
                 try
                 {
-                    // Log the full RAG+personality response before processing
-                    _logger.LogInformation("Full RAG+Personality response received (length: {Length} chars): {FullResponse}", 
-                        ragResponse.Response?.Length ?? 0, 
-                        ragResponse.Response?.Substring(0, Math.Min(500, ragResponse.Response.Length)) ?? "NULL");
-                    
-                    // Remove sources section from response before sending to HeyGen
-                    // The avatar should only speak the actual response, not the sources list
-                    var textToSend = RemoveSourcesSection(ragResponse.Response ?? string.Empty);
-                    
-                    // Validate that we have text to send
-                    if (string.IsNullOrWhiteSpace(textToSend))
+                    if (string.IsNullOrWhiteSpace(textToSendTask))
                     {
-                        _logger.LogError("Text to send to HeyGen is empty after removing sources section! Original response length: {Length}", 
-                            ragResponse.Response?.Length ?? 0);
-                        _logger.LogError("Original response was: {OriginalResponse}", ragResponse.Response ?? "NULL");
+                        _logger.LogError("Text to send to HeyGen is empty.");
                         return StatusCode(500, new
                         {
                             success = false,
                             error = "Response text is empty after processing",
-                            message = "The RAG+personality response was empty or contained only sources",
                             transcript = ragResponse.Response ?? "No response generated"
                         });
                     }
                     
-                    // CRITICAL: Verify streaming token is present
                     if (string.IsNullOrWhiteSpace(request.StreamingToken))
                     {
                         _logger.LogError("CRITICAL: Streaming token is missing from request! Session ID: {SessionId}. " +
@@ -492,29 +469,22 @@ namespace ERSimulatorApp.Controllers
                         });
                     }
                     
-                    _logger.LogInformation("Using streaming token from request (token length: {Length}, session: {SessionId})", 
-                        request.StreamingToken.Length, request.ConversationId);
+                    _logger.LogInformation("Sending to HeyGen (length: {Length} chars, IsFallback: {IsFallback})", 
+                        textToSendTask.Length, ragResponse.IsFallback);
                     
-                    // Log what we're sending to HeyGen for debugging
-                    _logger.LogInformation("Sending to HeyGen avatar as medical instructor (length: {Length} chars, first 200 chars): {TextPreview}", 
-                        textToSend.Length, 
-                        textToSend.Substring(0, Math.Min(200, textToSend.Length)));
+                    await _heyGenService.SendStreamingTaskAsync(request.ConversationId, textToSendTask, request.StreamingToken);
                     
-                    // CRITICAL: Use the streaming token from session creation - do NOT generate a new one
-                    await _heyGenService.SendStreamingTaskAsync(request.ConversationId, textToSend, request.StreamingToken);
-                    
-                    _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textToSend.Length);
+                    _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textToSendTask.Length);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error sending task to HeyGen: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
-                    // Still return RAG response even if HeyGen fails
                     return StatusCode(500, new
                     {
                         success = false,
                         error = "Failed to send message to avatar, but received response from knowledge base",
                         message = ex.Message,
-                        transcript = ragResponse.Response,
+                        transcript = ragResponse.IsFallback ? textToSendTask : ragResponse.Response,
                         sources = (ragResponse.Sources ?? new List<SourceReference>()).Select(s => new ChatSourceLink
                         {
                             Title = string.IsNullOrWhiteSpace(s.Title)
@@ -526,11 +496,11 @@ namespace ERSimulatorApp.Controllers
                         })
                         .Where(link => !string.IsNullOrWhiteSpace(link.Url))
                         .ToList(),
-                        isFallback = false
+                        isFallback = ragResponse.IsFallback
                     });
                 }
 
-                // Step 3: Return success with RAG response
+                // Step 4: Return success with RAG response
                 var sourceLinks = (ragResponse.Sources ?? new List<SourceReference>()).Select(s =>
                 {
                     var url = BuildSourceUrl(s.Filename);
@@ -558,9 +528,9 @@ namespace ERSimulatorApp.Controllers
                 return Ok(new
                 {
                     success = true,
-                    transcript = ragResponse.Response,
+                    transcript = ragResponse.IsFallback ? textToSendTask : ragResponse.Response,
                     sources = sourceLinks.Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList(),
-                    isFallback = false
+                    isFallback = ragResponse.IsFallback
                 });
             }
             catch (Exception ex)

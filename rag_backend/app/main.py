@@ -92,8 +92,29 @@ def call_remote_chat(
     return data["choices"][0]["message"]["content"]
 
 
-def call_local_ollama(messages: List[Dict[str, str]]):
-    raise RuntimeError("Local Ollama disabled (USE_REMOTE_LLM should be 1).")
+def call_local_ollama(
+    messages: List[Dict[str, str]],
+    temperature: float = 0.1,
+    max_tokens: int = 400,
+    timeout: int = 120,
+) -> str:
+    """Call local Ollama API."""
+    # --- ORIGINAL (commented out so we can revert if needed) ---
+    # def call_local_ollama(messages: List[Dict[str, str]]):
+    #     raise RuntimeError("Local Ollama disabled (USE_REMOTE_LLM should be 1).")
+    # --- END ORIGINAL ---
+    url = f"{OLLAMA_URL.rstrip('/')}/api/chat"
+    payload: Dict[str, Any] = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": False,
+        "options": {"temperature": temperature, "num_predict": max_tokens},
+    }
+    r = requests.post(url, json=payload, timeout=timeout)
+    if r.status_code >= 400:
+        raise RuntimeError(f"Ollama error {r.status_code}: {r.text}")
+    data = r.json()
+    return data.get("message", {}).get("content", "")
 
 
 # ---------- PDF helpers ----------
@@ -130,6 +151,68 @@ class IngestReq(BaseModel):
 class AskReq(BaseModel):
     question: str
     top_k: int = 4
+
+
+# OpenAI chat-completions request (for .NET ER Simulator)
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class OpenAIChatRequest(BaseModel):
+    model: Optional[str] = None
+    messages: List[ChatMessage]
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = 2000
+
+
+def _rag_answer(question: str, top_k: int = 4) -> tuple[str, list[str]]:
+    """Run RAG: query Chroma, build context, call LLM. Returns (answer, context_preview)."""
+    top_k = max(1, min(10, top_k))
+    results = collection.query(query_texts=[question], n_results=top_k)
+
+    docs = (results.get("documents") or [[]])[0]
+    metas = (results.get("metadatas") or [[]])[0]
+
+    if not docs:
+        return "No relevant context found in indexed PDFs.", []
+
+    previews = []
+    for d, m in zip(docs, metas):
+        src = m.get("source", "unknown")
+        chunk_id = m.get("chunk")
+        label = f"({src}, chunk {chunk_id})"
+        previews.append(f"- {label} {d[:700]}")
+
+    context_text = "\n".join(previews)
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a trauma/ATLS medical assistant.\n"
+                "You MUST use ONLY the provided context to answer.\n"
+                "If the answer is not clearly in the context, reply: \"Not found in context.\"\n"
+                "Do NOT hallucinate or invent medical facts.\n"
+                "If the question asks for a list (injuries, steps, interventions), respond in bullet points.\n"
+                "Do NOT repeat the ABCDE list unless the user explicitly asks for ABCDE.\n"
+                "Keep answers concise and clinically accurate.\n"
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Question: {question}\n\nContext:\n{context_text}",
+        },
+    ]
+
+    try:
+        if USE_REMOTE_LLM:
+            answer = call_remote_chat(messages, temperature=0.1, max_tokens=400)
+        else:
+            answer = call_local_ollama(messages)
+    except Exception as e:
+        return f"Error calling LLM: {e}", previews
+
+    return answer, previews
 
 
 # ---------- Routes ----------
@@ -183,66 +266,102 @@ def ingest(req: IngestReq):
 
 @app.post("/api/ask")
 def ask(req: AskReq):
+    """Trauma-safe RAG answer engine (NO forced ABCDE format)."""
+    answer, previews = _rag_answer(req.question, req.top_k)
+    return {"answer": answer, "context_preview": previews}
+
+    # --- ORIGINAL /api/ask INLINE IMPLEMENTATION (commented out so we can revert if needed) ---
+    # top_k = max(1, min(10, req.top_k))
+    # results = collection.query(query_texts=[req.question], n_results=top_k)
+    #
+    # docs = (results.get("documents") or [[]])[0]
+    # metas = (results.get("metadatas") or [[]])[0]
+    #
+    # if not docs:
+    #     return {
+    #         "answer": "No relevant context found in indexed PDFs.",
+    #         "context_preview": [],
+    #     }
+    #
+    # previews = []
+    # for d, m in zip(docs, metas):
+    #     src = m.get("source", "unknown")
+    #     chunk_id = m.get("chunk")
+    #     label = f"({src}, chunk {chunk_id})"
+    #     previews.append(f"- {label} {d[:700]}")
+    #
+    # context_text = "\n".join(previews)
+    # messages = [
+    #     {
+    #         "role": "system",
+    #         "content": (
+    #             "You are a trauma/ATLS medical assistant.\n"
+    #             "You MUST use ONLY the provided context to answer.\n"
+    #             "If the answer is not clearly in the context, reply: \"Not found in context.\"\n"
+    #             "Do NOT hallucinate or invent medical facts.\n"
+    #             "If the question asks for a list (injuries, steps, interventions), respond in bullet points.\n"
+    #             "Do NOT repeat the ABCDE list unless the user explicitly asks for ABCDE.\n"
+    #             "Keep answers concise and clinically accurate.\n"
+    #         ),
+    #     },
+    #     {
+    #         "role": "user",
+    #         "content": f"Question: {req.question}\n\nContext:\n{context_text}",
+    #     },
+    # ]
+    #
+    # try:
+    #     if USE_REMOTE_LLM:
+    #         answer = call_remote_chat(messages, temperature=0.1, max_tokens=400)
+    #     else:
+    #         answer = call_local_ollama(messages)
+    # except Exception as e:
+    #     return {
+    #         "answer": f"Error calling LLM: {e}",
+    #         "context_preview": previews,
+    #     }
+    #
+    # return {
+    #     "answer": answer,
+    #     "context_preview": previews,
+    # }
+    # --- END ORIGINAL ---
+
+
+@app.post("/v1/chat/completions")
+def chat_completions(req: OpenAIChatRequest):
     """
-    Trauma-safe RAG answer engine (NO forced ABCDE format).
+    OpenAI-compatible endpoint for the .NET ER Simulator.
+    Accepts { model, messages, temperature?, max_tokens? }, returns { choices, context_preview }.
     """
+    user_parts = [m.content for m in req.messages if m.role == "user"]
+    question = " ".join(user_parts).strip() if user_parts else ""
 
-    top_k = max(1, min(10, req.top_k))
-    results = collection.query(query_texts=[req.question], n_results=top_k)
-
-    docs = (results.get("documents") or [[]])[0]
-    metas = (results.get("metadatas") or [[]])[0]
-
-    if not docs:
+    if not question:
         return {
-            "answer": "No relevant context found in indexed PDFs.",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "No user message provided."},
+                    "finish_reason": "stop",
+                }
+            ],
             "context_preview": [],
         }
 
-    # Build context preview
-    previews = []
-    for d, m in zip(docs, metas):
-        src = m.get("source", "unknown")
-        chunk_id = m.get("chunk")
-        label = f"({src}, chunk {chunk_id})"
-        previews.append(f"- {label} {d[:700]}")
-
-    context_text = "\n".join(previews)
-
-    # --- NEW SAFER PROMPT (NO ABCDE FORCING) ---
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a trauma/ATLS medical assistant.\n"
-                "You MUST use ONLY the provided context to answer.\n"
-                "If the answer is not clearly in the context, reply: \"Not found in context.\"\n"
-                "Do NOT hallucinate or invent medical facts.\n"
-                "If the question asks for a list (injuries, steps, interventions), respond in bullet points.\n"
-                "Do NOT repeat the ABCDE list unless the user explicitly asks for ABCDE.\n"
-                "Keep answers concise and clinically accurate.\n"
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"Question: {req.question}\n\nContext:\n{context_text}",
-        },
-    ]
-
-    # Call LLM
-    try:
-        if USE_REMOTE_LLM:
-            answer = call_remote_chat(messages, temperature=0.1, max_tokens=400)
-        else:
-            answer = call_local_ollama(messages)
-    except Exception as e:
-        return {
-            "answer": f"Error calling LLM: {e}",
-            "context_preview": previews,
-        }
+    answer, previews = _rag_answer(question, top_k=5)
 
     return {
-        "answer": answer,
+        "id": "rag-chat-" + str(uuid.uuid4()),
+        "object": "chat.completion",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": answer},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         "context_preview": previews,
     }
 
