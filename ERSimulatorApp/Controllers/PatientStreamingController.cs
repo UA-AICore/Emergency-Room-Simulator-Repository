@@ -178,8 +178,8 @@ namespace ERSimulatorApp.Controllers
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error generating patient response");
-                    return StatusCode(500, new { error = "Failed to generate patient response", message = ex.Message });
+                    _logger.LogWarning(ex, "OpenAI failed; using fallback so patient avatar still speaks");
+                    patientResponse = "I'm not feeling well. Can you help me? [My response service is temporarily unavailable.]";
                 }
 
                 // Add patient response to history
@@ -300,8 +300,8 @@ namespace ERSimulatorApp.Controllers
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error generating patient response");
-                    return StatusCode(500, new { error = "Failed to generate patient response", message = ex.Message });
+                    _logger.LogWarning(ex, "OpenAI failed; using fallback so patient avatar still speaks");
+                    patientResponse = "I'm not feeling well. Can you help me? [My response service is temporarily unavailable.]";
                 }
 
                 // Add patient response to history

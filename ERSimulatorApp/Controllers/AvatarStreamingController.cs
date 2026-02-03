@@ -18,6 +18,7 @@ namespace ERSimulatorApp.Controllers
         private readonly IWhisperService _whisperService;
         private readonly ILogger<AvatarStreamingController> _logger;
         private readonly string _sourceDocumentsPath;
+        private readonly int _maxSpeechChars;
 
         public AvatarStreamingController(
             IHeyGenStreamingService heyGenService,
@@ -48,6 +49,24 @@ namespace ERSimulatorApp.Controllers
             {
                 _logger.LogWarning("Source documents path does not exist: {SourcePath}", _sourceDocumentsPath);
             }
+
+            // Cap text sent to HeyGen to reduce mid-sentence disconnects (long TTS can hit timeouts/limits)
+            _maxSpeechChars = configuration.GetValue("HeyGen:MaxSpeechChars", 1200);
+        }
+
+        /// <summary>
+        /// Truncate text for HeyGen so each speech segment stays short and is less likely to disconnect mid-sentence.
+        /// Full response is still returned in the API; only what the avatar speaks is capped.
+        /// </summary>
+        private string TruncateForAvatar(string text)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length <= _maxSpeechChars)
+                return text ?? string.Empty;
+            var truncated = text.Substring(0, _maxSpeechChars);
+            var lastSpace = truncated.LastIndexOf(' ');
+            if (lastSpace > _maxSpeechChars / 2)
+                truncated = truncated.Substring(0, lastSpace);
+            return truncated.TrimEnd() + "…";
         }
 
         /// <summary>
@@ -311,15 +330,18 @@ namespace ERSimulatorApp.Controllers
                         });
                     }
                     
-                    _logger.LogInformation("Step 3: Sending to HeyGen avatar (length: {Length} chars)", textToSend.Length);
+                    var textForAvatar = TruncateForAvatar(textToSend);
+                    if (textToSend.Length > textForAvatar.Length)
+                        _logger.LogInformation("Truncated avatar speech from {Original} to {Truncated} chars to reduce mid-sentence disconnects", textToSend.Length, textForAvatar.Length);
+
+                    _logger.LogInformation("Step 3: Sending to HeyGen avatar (length: {Length} chars)", textForAvatar.Length);
                     _logger.LogInformation("Text being sent to HeyGen (first 200 chars): {TextPreview}", 
-                        textToSend.Substring(0, Math.Min(200, textToSend.Length)));
+                        textForAvatar.Substring(0, Math.Min(200, textForAvatar.Length)));
                     
                     // CRITICAL: Only send the RAG response text - do NOT send user question or conversation history
-                    // Send to HeyGen - this will handle TTS and streaming back to client
-                    await _heyGenService.SendStreamingTaskAsync(conversationId, textToSend, streamingToken);
+                    await _heyGenService.SendStreamingTaskAsync(conversationId, textForAvatar, streamingToken);
                     
-                    _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textToSend.Length);
+                    _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textForAvatar.Length);
                 }
                 catch (Exception ex)
                 {
@@ -469,12 +491,16 @@ namespace ERSimulatorApp.Controllers
                         });
                     }
                     
+                    var textForAvatarTask = TruncateForAvatar(textToSendTask);
+                    if (textToSendTask.Length > textForAvatarTask.Length)
+                        _logger.LogInformation("Truncated avatar speech from {Original} to {Truncated} chars to reduce mid-sentence disconnects", textToSendTask.Length, textForAvatarTask.Length);
+
                     _logger.LogInformation("Sending to HeyGen (length: {Length} chars, IsFallback: {IsFallback})", 
-                        textToSendTask.Length, ragResponse.IsFallback);
+                        textForAvatarTask.Length, ragResponse.IsFallback);
                     
-                    await _heyGenService.SendStreamingTaskAsync(request.ConversationId, textToSendTask, request.StreamingToken);
+                    await _heyGenService.SendStreamingTaskAsync(request.ConversationId, textForAvatarTask, request.StreamingToken);
                     
-                    _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textToSendTask.Length);
+                    _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textForAvatarTask.Length);
                 }
                 catch (Exception ex)
                 {

@@ -19,7 +19,10 @@ namespace ERSimulatorApp.Services
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger<PatientPersonalityService> _logger;
-        private readonly string _apiKey;
+        private readonly bool _useOllama;
+        private readonly string? _ollamaEndpoint;
+        private readonly string? _ollamaModel;
+        private readonly string? _apiKey;
         private readonly string _model;
         private readonly string _openAIBaseUrl;
 
@@ -30,9 +33,15 @@ namespace ERSimulatorApp.Services
         {
             _httpClient = httpClient;
             _logger = logger;
-            _apiKey = configuration["OpenAI:ApiKey"] ?? throw new InvalidOperationException("OpenAI API key not found");
+            _ollamaEndpoint = configuration["Ollama:Endpoint"]?.Trim();
+            _ollamaModel = configuration["Ollama:Model"]?.Trim();
+            _useOllama = !string.IsNullOrEmpty(_ollamaEndpoint) && !string.IsNullOrEmpty(_ollamaModel);
+            _apiKey = configuration["OpenAI:ApiKey"]?.Trim();
             _model = configuration["OpenAI:Model"] ?? "gpt-4.1";
-            _openAIBaseUrl = "https://api.openai.com/v1/chat/completions";
+            _openAIBaseUrl = configuration["OpenAI:BaseUrl"]?.Trim() ?? "https://api.openai.com/v1/chat/completions";
+
+            if (!_useOllama && string.IsNullOrEmpty(_apiKey))
+                throw new InvalidOperationException("Either configure Ollama (Endpoint + Model) or OpenAI (ApiKey) for patient personality.");
         }
 
         public async Task<string> GetPatientResponseAsync(string userMessage, List<ConversationMessage>? conversationHistory = null, PatientEmotionalState? currentEmotionalState = null)
@@ -45,51 +54,51 @@ namespace ERSimulatorApp.Services
                     conversationHistory?.Count ?? 0);
 
                 var patientPrompt = CreatePatientPrompt(userMessage, conversationHistory, currentEmotionalState);
+                string? patientResponse;
 
-                var requestBody = new
+                if (_useOllama)
                 {
-                    model = _model,
-                    messages = new[]
+                    patientResponse = await CallOllamaAsync(patientPrompt);
+                }
+                else
+                {
+                    var requestBody = new
                     {
-                        new { role = "user", content = patientPrompt }
-                    },
-                    temperature = 0.8, // Slightly higher for more natural patient responses
-                    max_tokens = 1000
-                };
+                        model = _model,
+                        messages = new[] { new { role = "user", content = patientPrompt } },
+                        temperature = 0.8,
+                        max_tokens = 1000
+                    };
 
-                var json = JsonSerializer.Serialize(requestBody);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                    var json = JsonSerializer.Serialize(requestBody);
+                    var content = new StringContent(json, Encoding.UTF8, "application/json");
+                    var request = new HttpRequestMessage(HttpMethod.Post, _openAIBaseUrl) { Content = content };
+                    request.Headers.Add("Authorization", $"Bearer {_apiKey}");
 
-                var request = new HttpRequestMessage(HttpMethod.Post, _openAIBaseUrl)
-                {
-                    Content = content
-                };
-                request.Headers.Add("Authorization", $"Bearer {_apiKey}");
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    var response = await _httpClient.SendAsync(request, cts.Token);
 
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                var response = await _httpClient.SendAsync(request, cts.Token);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var errorContent = await response.Content.ReadAsStringAsync();
+                        _logger.LogError("OpenAI API error: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                        return "I'm sorry, I'm having trouble responding right now. Can you repeat that?";
+                    }
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogError($"OpenAI API error: {response.StatusCode} - {errorContent}");
-                    return "I'm sorry, I'm having trouble responding right now. Can you repeat that?";
+                    var responseContent = await response.Content.ReadAsStringAsync();
+                    OpenAIResponse? openAIResponse = null;
+                    try
+                    {
+                        openAIResponse = JsonSerializer.Deserialize<OpenAIResponse>(responseContent);
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.LogError(ex, "Failed to deserialize OpenAI response");
+                        return "I'm sorry, I didn't understand that. Can you explain?";
+                    }
+
+                    patientResponse = openAIResponse?.Choices?.FirstOrDefault()?.Message?.Content;
                 }
-
-                var responseContent = await response.Content.ReadAsStringAsync();
-                OpenAIResponse? openAIResponse = null;
-
-                try
-                {
-                    openAIResponse = JsonSerializer.Deserialize<OpenAIResponse>(responseContent);
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogError(ex, "Failed to deserialize OpenAI response");
-                    return "I'm sorry, I didn't understand that. Can you explain?";
-                }
-
-                var patientResponse = openAIResponse?.Choices?.FirstOrDefault()?.Message?.Content;
                 if (string.IsNullOrEmpty(patientResponse))
                 {
                     _logger.LogWarning("OpenAI returned null response");
@@ -109,6 +118,41 @@ namespace ERSimulatorApp.Services
                 _logger.LogError(ex, "Error generating patient response");
                 return "I'm sorry, I'm not feeling well and having trouble responding.";
             }
+        }
+
+        private async Task<string?> CallOllamaAsync(string prompt)
+        {
+            var requestBody = new
+            {
+                model = _ollamaModel,
+                messages = new[] { new { role = "user", content = prompt } },
+                stream = false
+            };
+            var json = JsonSerializer.Serialize(requestBody);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var response = await _httpClient.PostAsync(_ollamaEndpoint!, content, cts.Token);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Ollama API error: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                return null;
+            }
+
+            var responseContent = await response.Content.ReadAsStringAsync();
+            OllamaChatResponse? ollamaResponse = null;
+            try
+            {
+                ollamaResponse = JsonSerializer.Deserialize<OllamaChatResponse>(responseContent);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Failed to deserialize Ollama response");
+                return null;
+            }
+
+            return ollamaResponse?.Message?.Content;
         }
 
         private string CreatePatientPrompt(string userMessage, List<ConversationMessage>? conversationHistory, PatientEmotionalState? currentEmotionalState)

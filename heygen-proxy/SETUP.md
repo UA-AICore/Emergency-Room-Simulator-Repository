@@ -19,7 +19,7 @@ The proxy will run on `http://localhost:3001`
 ```json
 {
   "HeyGen": {
-    "ApiKey": "sk_V2_hgu_kVnKR3rBT13_7oT6Ptetv8L09piUrAuYtJLRoLEjORa6",
+    "ApiKey": "YOUR_HEYGEN_API_KEY_HERE",
     "ProxyUrl": "http://localhost:3001",
     "AvatarId": "26a6ac7b34774cd3bfbebc5612cd2dba",
     "LookId": "Dexter_Casual_Front_public"
@@ -47,7 +47,7 @@ curl http://localhost:3001/health
 ### Test HeyGen API through proxy:
 ```bash
 curl -X POST http://localhost:3001/conversations/start \
-  -H "X-Api-Key: sk_V2_hgu_kVnKR3rBT13_7oT6Ptetv8L09piUrAuYtJLRoLEjORa6" \
+  -H "X-Api-Key: YOUR_HEYGEN_API_KEY_HERE" \
   -H "Content-Type: application/json" \
   -d '{
     "avatar_id": "26a6ac7b34774cd3bfbebc5612cd2dba",

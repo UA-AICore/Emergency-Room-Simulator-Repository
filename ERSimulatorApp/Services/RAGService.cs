@@ -12,25 +12,51 @@ namespace ERSimulatorApp.Services
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger<RAGService> _logger;
+        private readonly IConfiguration _configuration;
         private readonly string _ragBaseUrl;
         private readonly string _apiKey;
         private readonly string _model;
         private readonly int _topK;
+        private readonly string? _ollamaEndpoint;
+        private readonly string? _ollamaModel;
+        private readonly bool _useLocalOllama;
 
         public RAGService(HttpClient httpClient, ILogger<RAGService> logger, IConfiguration configuration)
         {
             _httpClient = httpClient;
             _logger = logger;
-            _ragBaseUrl = configuration["RAG:BaseUrl"] ?? "https://aicore-healthcareteam-llm-server.tra220030.projects.jetstream-cloud.org/v1/chat/completions";
+            _configuration = configuration;
+            _ragBaseUrl = configuration["RAG:BaseUrl"] ?? "https://aicore-llmserver-healthcare.tra220030.projects.jetstream-cloud.org/v1/chat/completions";
             _apiKey = configuration["RAG:ApiKey"] ?? string.Empty;
             _model = configuration["RAG:Model"] ?? "meta-llama/Llama-3.2-1B-instruct";
             _topK = configuration.GetValue<int?>("RAG:TopK") ?? 5;
+            _ollamaEndpoint = configuration["Ollama:Endpoint"]?.Trim();
+            _ollamaModel = configuration["Ollama:Model"]?.Trim();
+            _useLocalOllama = configuration.GetValue<bool>("RAG:UseLocalOllama");
         }
 
         private const string FallbackMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
+        private const string OllamaFallbackPrefix = "My reference database is unavailable right now. From general knowledge: ";
 
         public async Task<LLMResponse> GetResponseAsync(string prompt)
         {
+            // Use local Ollama as primary LLM when configured (no Python RAG backend needed)
+            if (_useLocalOllama && !string.IsNullOrEmpty(_ollamaEndpoint) && !string.IsNullOrEmpty(_ollamaModel))
+            {
+                var ollamaAnswer = await TryOllamaFallbackAsync(prompt);
+                if (!string.IsNullOrWhiteSpace(ollamaAnswer))
+                {
+                    _logger.LogInformation("Using local Ollama for avatar response (RAG:UseLocalOllama=true).");
+                    return new LLMResponse
+                    {
+                        Response = ollamaAnswer.Trim(),
+                        Sources = new List<SourceReference>(),
+                        IsFallback = false
+                    };
+                }
+                _logger.LogWarning("RAG:UseLocalOllama is true but Ollama call failed; falling back to RAG URL or error.");
+            }
+
             try
             {
                 // OpenAI-compatible chat completions request format
@@ -296,12 +322,57 @@ namespace ERSimulatorApp.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error calling RAG API");
+                // If Ollama is configured, try local LLM so the avatar still gives an answer (without PDF context)
+                if (!string.IsNullOrEmpty(_ollamaEndpoint) && !string.IsNullOrEmpty(_ollamaModel))
+                {
+                    var ollamaAnswer = await TryOllamaFallbackAsync(prompt);
+                    if (!string.IsNullOrWhiteSpace(ollamaAnswer))
+                    {
+                        _logger.LogInformation("RAG unavailable; used Ollama fallback for avatar response.");
+                        return new LLMResponse
+                        {
+                            Response = OllamaFallbackPrefix + ollamaAnswer.Trim(),
+                            Sources = new List<SourceReference>(),
+                            IsFallback = true
+                        };
+                    }
+                }
                 return new LLMResponse
                 {
                     Response = FallbackMessage,
                     Sources = new List<SourceReference>(),
                     IsFallback = true
                 };
+            }
+        }
+
+        private async Task<string?> TryOllamaFallbackAsync(string prompt)
+        {
+            try
+            {
+                var requestBody = new
+                {
+                    model = _ollamaModel,
+                    messages = new[] { new { role = "user", content = prompt } },
+                    stream = false
+                };
+                var json = JsonSerializer.Serialize(requestBody);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                var response = await _httpClient.PostAsync(_ollamaEndpoint!, content, cts.Token);
+                if (!response.IsSuccessStatusCode)
+                    return null;
+                var responseContent = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(responseContent);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("message", out var msg) && msg.TryGetProperty("content", out var contentEl))
+                    return contentEl.GetString();
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Ollama fallback failed");
+                return null;
             }
         }
 
