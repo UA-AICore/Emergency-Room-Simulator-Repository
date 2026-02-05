@@ -2,7 +2,9 @@ using ERSimulatorApp.Models;
 using ERSimulatorApp.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
+using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 
 namespace ERSimulatorApp.Controllers
 {
@@ -52,6 +54,31 @@ namespace ERSimulatorApp.Controllers
 
             // Cap text sent to HeyGen to reduce mid-sentence disconnects (long TTS can hit timeouts/limits)
             _maxSpeechChars = configuration.GetValue("HeyGen:MaxSpeechChars", 1200);
+        }
+
+        /// <summary>Per-session conversation history for Dr. Dexter (student questions + his answers).</summary>
+        private static readonly ConcurrentDictionary<string, List<ConversationMessage>> _avatarHistory = new();
+
+        private const int AvatarContextMessageCount = 16; // last 8 exchanges (student + Dr. Dexter each)
+
+        /// <summary>Message sent by the frontend when the avatar session starts (Avatar.cshtml).</summary>
+        private static bool IsInitialGreeting(string message) =>
+            !string.IsNullOrEmpty(message) &&
+            message.Contains("Briefly introduce yourself as Dr. Dexter", StringComparison.OrdinalIgnoreCase);
+
+        private const string ScriptedDrDexterGreeting = "Hi, I'm Dr. Dexter. I'm an ER physician and I'm here to help you learn about emergency medicine and trauma care. What would you like to explore today?";
+
+        private static string BuildPromptWithAvatarContext(string currentQuestion, List<ConversationMessage> history)
+        {
+            List<ConversationMessage> recent = history.Count <= 1
+                ? new List<ConversationMessage>()
+                : history.Take(history.Count - 1).TakeLast(AvatarContextMessageCount).ToList();
+            if (recent.Count == 0)
+                return currentQuestion;
+            var lines = recent.Select(m => m.Role == "user"
+                ? "Student: " + m.Content
+                : "Dr. Dexter: " + m.Content);
+            return "Recent conversation:\n" + string.Join("\n", lines) + "\n\nStudent's current question: " + currentQuestion + "\n\nRespond to the student's current question in 2–4 sentences. Be clear and concise.";
         }
 
         /// <summary>
@@ -434,21 +461,47 @@ namespace ERSimulatorApp.Controllers
                     return BadRequest(new { error = "Session ID (conversationId) is required" });
                 }
 
-                _logger.LogInformation("Processing message for session {SessionId}: {UserQuestion}", 
+                _logger.LogInformation("Processing message for session {SessionId}: {UserQuestion}",
                     request.ConversationId, request.Message.Substring(0, Math.Min(100, request.Message.Length)));
 
-                // Step 1: Get RAG response from medical knowledge base
-                // This queries the RAG database for medical information related to the user's question
-                _logger.LogInformation("Querying RAG database for medical information...");
-                var ragResponse = await _llmService.GetResponseAsync(request.Message);
-                
+                var history = _avatarHistory.GetOrAdd(request.ConversationId, _ => new List<ConversationMessage>());
+                lock (history)
+                {
+                    history.Add(new ConversationMessage { Role = "user", Content = request.Message });
+                }
+
+                // Step 1: Get RAG response (scripted greeting, or LLM with conversation context)
+                LLMResponse ragResponse;
+                if (IsInitialGreeting(request.Message))
+                {
+                    _logger.LogInformation("Using scripted greeting for initial Dr. Dexter intro.");
+                    ragResponse = new LLMResponse
+                    {
+                        Response = ScriptedDrDexterGreeting,
+                        Sources = new List<SourceReference>(),
+                        IsFallback = false
+                    };
+                }
+                else
+                {
+                    var promptWithContext = BuildPromptWithAvatarContext(request.Message, history);
+                    _logger.LogInformation("Querying RAG database for medical information (with conversation context)...");
+                    ragResponse = await _llmService.GetResponseAsync(promptWithContext);
+                }
+
+                var responseText = RemoveSourcesSection(ragResponse.Response ?? string.Empty);
+                lock (history)
+                {
+                    history.Add(new ConversationMessage { Role = "assistant", Content = responseText });
+                }
+
                 _logger.LogInformation("RAG database returned response with {SourceCount} medical source references", 
                     ragResponse.Sources?.Count ?? 0);
 
                 // When RAG is offline, still send a fallback message to HeyGen so the avatar shows and speaks
                 var textToSendTask = ragResponse.IsFallback
                     ? "I'm Dr. Dexter. My reference database is temporarily unavailable. You can still see me here—please try again in a moment."
-                    : RemoveSourcesSection(ragResponse.Response ?? string.Empty);
+                    : responseText;
 
                 if (ragResponse.IsFallback)
                 {

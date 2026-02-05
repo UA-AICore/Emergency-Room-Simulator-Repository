@@ -58,7 +58,11 @@ namespace ERSimulatorApp.Services
 
                 if (_useOllama)
                 {
-                    patientResponse = await CallOllamaAsync(patientPrompt);
+                    // Use multi-turn chat when we have history so the model continues the conversation instead of repeating
+                    if (conversationHistory != null && conversationHistory.Count > 0)
+                        patientResponse = await CallOllamaWithHistoryAsync(conversationHistory);
+                    else
+                        patientResponse = await CallOllamaAsync(patientPrompt);
                 }
                 else
                 {
@@ -120,13 +124,60 @@ namespace ERSimulatorApp.Services
             }
         }
 
+        private const string OllamaSystemPatient = "You are Mike, a patient in the ER. Reply with ONLY the words you would say out loud—no narrative. Answer what the provider just asked. Do not repeat your full story or intro; if they asked for more detail, give new details (e.g. where the pain is, does it spread, what you were doing).";
+
+        private async Task<string?> CallOllamaWithHistoryAsync(List<ConversationMessage> history)
+        {
+            var recent = history.TakeLast(12).ToList();
+            var messages = new List<object>();
+            messages.Add(new { role = "system", content = OllamaSystemPatient });
+            foreach (var msg in recent)
+            {
+                var role = msg.Role == "user" ? "user" : "assistant";
+                messages.Add(new { role = role, content = msg.Content });
+            }
+            var requestBody = new
+            {
+                model = _ollamaModel,
+                messages = messages,
+                stream = false,
+                options = new { num_predict = 300 }
+            };
+            var json = JsonSerializer.Serialize(requestBody);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var response = await _httpClient.PostAsync(_ollamaEndpoint!, content, cts.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                _logger.LogError("Ollama API error: {StatusCode} - {Error}", response.StatusCode, errorContent);
+                return null;
+            }
+            var responseContent = await response.Content.ReadAsStringAsync();
+            try
+            {
+                var ollamaResponse = JsonSerializer.Deserialize<OllamaChatResponse>(responseContent);
+                return ollamaResponse?.Message?.Content;
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogError(ex, "Failed to deserialize Ollama response");
+                return null;
+            }
+        }
+
         private async Task<string?> CallOllamaAsync(string prompt)
         {
             var requestBody = new
             {
                 model = _ollamaModel,
-                messages = new[] { new { role = "user", content = prompt } },
-                stream = false
+                messages = new[]
+                {
+                    new { role = "system", content = OllamaSystemPatient },
+                    new { role = "user", content = prompt }
+                },
+                stream = false,
+                options = new { num_predict = 300 }
             };
             var json = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -164,7 +215,7 @@ namespace ERSimulatorApp.Services
             if (conversationHistory != null && conversationHistory.Count > 0)
             {
                 historyContext = "\n\n**CONVERSATION HISTORY (Previous Interactions):**\n";
-                foreach (var msg in conversationHistory.TakeLast(6)) // Last 6 messages for context
+                foreach (var msg in conversationHistory.TakeLast(12)) // Last 12 messages (6 exchanges) for context
                 {
                     var roleLabel = msg.Role == "user" ? "Healthcare Provider" : "You (Patient)";
                     historyContext += $"- {roleLabel}: \"{msg.Content}\"\n";
@@ -222,12 +273,12 @@ namespace ERSimulatorApp.Services
 **Healthcare Provider's Current Message:** {userMessage}
 
 **Your Task:**
-Respond as a patient would respond to this healthcare provider. Your emotional state should reflect how you're being treated. If you're being treated well, you may calm down. If you're being ignored or dismissed, you may become more agitated. Be natural, realistic, and in character.
+Respond directly to what the provider JUST said above. Do not repeat the same complaints you already made in the conversation—react to their latest message (e.g. acknowledge a plan, answer a question, ask a short follow-up, or show slight relief if they reassured you). Keep your response to 2–4 sentences. Your emotional state should reflect how you're being treated; if they are taking action or reassuring you, you may calm down a bit.
 
 **Response Guidelines:**
-1. **SPEAK AS A PATIENT** - Use first person (""I"", ""me"", ""my pain"", ""I feel"")
-2. **BE REALISTIC** - Respond as a real patient would, not as a medical professional
-3. **SHOW EMOTION** - Express emotions appropriate to your current state and how you're being treated
+1. **ONLY SPOKEN DIALOGUE** - Output ONLY the exact words the patient would say out loud. No narrative, no stage directions, no ""I say"", no ""trying to keep my voice steady"", no descriptions of tone or action. Just the spoken line.
+2. **SPEAK AS A PATIENT** - Use first person (""I"", ""me"", ""my pain"", ""I feel"")
+3. **BE REALISTIC** - Respond as a real patient would, not as a medical professional
 4. **USE LAYPERSON LANGUAGE** - Don't use medical jargon unless the patient would know it
 5. **ANSWER QUESTIONS** - Respond to questions about symptoms, history, concerns
 6. **ASK FOR CLARIFICATION** - If you don't understand something, ask for explanation
@@ -248,8 +299,9 @@ Respond as a patient would respond to this healthcare provider. Your emotional s
 
 **Example of INCORRECT response style (don't do this):**
 ""Let me explain the pathophysiology of chest pain..."" - You're a patient, not a doctor.
+""Hey, I appreciate that,"" I say, trying to keep my voice steady. ""But I'm still worried..."" - Never use narrative or stage directions; only the words the patient would actually speak.
 
-Start your response now (speaking as a patient responding to the healthcare provider, reflecting your current emotional state and how you're being treated):";
+Start your response now with ONLY the words the patient would say out loud (no ""I say"", no descriptions):";
         }
 
         private string GetEmotionalStateDescription(PatientEmotionalState state)

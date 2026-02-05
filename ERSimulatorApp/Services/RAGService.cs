@@ -346,6 +346,8 @@ namespace ERSimulatorApp.Services
             }
         }
 
+        private const string OllamaSystemDrDexter = "You are Dr. Dexter in a medical training simulation. Always respond in character as the instructor. Do not refuse; give a direct, helpful teaching response every time. Keep your answer to 2-4 sentences so the student can follow along.";
+
         private async Task<string?> TryOllamaFallbackAsync(string prompt)
         {
             try
@@ -353,8 +355,13 @@ namespace ERSimulatorApp.Services
                 var requestBody = new
                 {
                     model = _ollamaModel,
-                    messages = new[] { new { role = "user", content = prompt } },
-                    stream = false
+                    messages = new[]
+                    {
+                        new { role = "system", content = OllamaSystemDrDexter },
+                        new { role = "user", content = prompt }
+                    },
+                    stream = false,
+                    options = new { num_predict = 300 }
                 };
                 var json = JsonSerializer.Serialize(requestBody);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");

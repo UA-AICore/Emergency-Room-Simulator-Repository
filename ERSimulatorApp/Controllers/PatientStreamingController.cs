@@ -425,7 +425,7 @@ namespace ERSimulatorApp.Controllers
                 lowerUserMessage.Contains("already asked") ||
                 lowerUserMessage.Contains("repeat");
 
-            // Check for de-escalation factors
+            // Check for de-escalation factors (provider is reassuring or taking action)
             var hasDeEscalationFactors =
                 lowerUserMessage.Contains("understand") ||
                 lowerUserMessage.Contains("sorry") ||
@@ -435,7 +435,14 @@ namespace ERSimulatorApp.Controllers
                 lowerUserMessage.Contains("listen") ||
                 lowerUserMessage.Contains("empathy") ||
                 lowerUserMessage.Contains("validate") ||
-                lowerUserMessage.Contains("appreciate");
+                lowerUserMessage.Contains("appreciate") ||
+                lowerUserMessage.Contains("positive") ||
+                lowerUserMessage.Contains("everything will be fine") ||
+                lowerUserMessage.Contains("run") && lowerUserMessage.Contains("test") ||
+                lowerUserMessage.Contains("iv") ||
+                lowerUserMessage.Contains("fluid") ||
+                lowerUserMessage.Contains("we're going to") ||
+                lowerUserMessage.Contains("let's");
 
             // Check if patient response shows agitation
             var patientShowsAgitation = 
@@ -490,13 +497,14 @@ namespace ERSimulatorApp.Controllers
                 }
             }
 
-            // De-escalation logic (only if provider is being helpful)
+            // De-escalation logic when provider is reassuring or taking action
             if (hasDeEscalationFactors && !hasEscalationTriggers && !isRepeatedQuestion)
             {
-                if (patientShowsCalming && currentState > PatientEmotionalState.Neutral)
+                if (currentState > PatientEmotionalState.Calm)
                 {
-                    newState = currentState - 1; // De-escalate one level
-                    _logger.LogInformation("Patient emotional state de-escalating from {OldState} to {NewState}", 
+                    // De-escalate when provider is helpful (don't require patient to have said "thank you" first)
+                    newState = currentState - 1;
+                    _logger.LogInformation("Patient emotional state de-escalating from {OldState} to {NewState} (provider showed reassurance/action)", 
                         currentState, newState);
                 }
             }
