@@ -59,7 +59,7 @@ namespace ERSimulatorApp.Controllers
         /// <summary>Per-session conversation history for Dr. Dexter (student questions + his answers).</summary>
         private static readonly ConcurrentDictionary<string, List<ConversationMessage>> _avatarHistory = new();
 
-        private const int AvatarContextMessageCount = 16; // last 8 exchanges (student + Dr. Dexter each)
+        private const int AvatarContextMessageCount = 32; // last 16 exchanges (student + Dr. Dexter each) for wider context
 
         /// <summary>Message sent by the frontend when the avatar session starts (Avatar.cshtml).</summary>
         private static bool IsInitialGreeting(string message) =>
@@ -78,7 +78,7 @@ namespace ERSimulatorApp.Controllers
             var lines = recent.Select(m => m.Role == "user"
                 ? "Student: " + m.Content
                 : "Dr. Dexter: " + m.Content);
-            return "Recent conversation:\n" + string.Join("\n", lines) + "\n\nStudent's current question: " + currentQuestion + "\n\nRespond to the student's current question in 2–4 sentences. Be clear and concise.";
+            return "Recent conversation:\n" + string.Join("\n", lines) + "\n\nStudent's current question: " + currentQuestion + "\n\nAnswer ONLY the student's CURRENT question above. Do not repeat your introduction or re-teach the previous topic. If they are asking about something new (e.g. a new symptom or concern), respond to that new question. Respond in 2–4 sentences. Be clear and concise.";
         }
 
         /// <summary>
