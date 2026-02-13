@@ -36,11 +36,11 @@ namespace ERSimulatorApp.Services
         }
 
         private const string FallbackMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
-        private const string OllamaFallbackPrefix = "My reference database is unavailable right now. From general knowledge: ";
+        private const string OllamaFallbackPrefix = "From general knowledge: ";
 
         public async Task<LLMResponse> GetResponseAsync(string prompt)
         {
-            // Use local Ollama as primary LLM when configured (no Python RAG backend needed)
+            // Use local Ollama as primary LLM when configured (no RAG HTTP server or OpenAI needed)
             if (_useLocalOllama && !string.IsNullOrEmpty(_ollamaEndpoint) && !string.IsNullOrEmpty(_ollamaModel))
             {
                 var ollamaAnswer = await TryOllamaFallbackAsync(prompt);
@@ -54,7 +54,13 @@ namespace ERSimulatorApp.Services
                         IsFallback = false
                     };
                 }
-                _logger.LogWarning("RAG:UseLocalOllama is true but Ollama call failed; falling back to RAG URL or error.");
+                _logger.LogWarning("RAG:UseLocalOllama is true but Ollama call failed; returning fallback (not calling RAG URL).");
+                return new LLMResponse
+                {
+                    Response = FallbackMessage,
+                    Sources = new List<SourceReference>(),
+                    IsFallback = true
+                };
             }
 
             try
@@ -266,7 +272,7 @@ namespace ERSimulatorApp.Services
                     {
                         _logger.LogInformation("No sources from remote RAG server, attempting to infer sources from response content. Prompt length: {PromptLen}, Answer length: {AnswerLen}", 
                             prompt?.Length ?? 0, answer?.Length ?? 0);
-                        var inferredSources = InferSourcesFromRemoteResponse(prompt, answer);
+                        var inferredSources = InferSourcesFromRemoteResponse(prompt ?? "", answer ?? "");
                         _logger.LogInformation("Inference returned {Count} sources", inferredSources.Count);
                         if (inferredSources.Count > 0)
                         {
@@ -312,10 +318,11 @@ namespace ERSimulatorApp.Services
                     }
                 }
 
+                List<SourceReference> sourcesForResponse = references is null ? new List<SourceReference>() : references;
                 return new LLMResponse
                 {
                     Response = formattedResponse,
-                    Sources = references ?? new List<SourceReference>(),
+                    Sources = sourcesForResponse,
                     IsFallback = false
                 };
             }

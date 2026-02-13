@@ -774,12 +774,19 @@
             if (response.transcript) {
                 addMessage('Avatar', response.transcript);
             }
+            if (response.sessionExpired && liveKitRoom) {
+                try { liveKitRoom.disconnect(); } catch (e) { console.warn('Disconnect on session expired:', e); }
+                liveKitRoom = null;
+                addMessage('System', 'Session expired (response took too long or you reconnected). Click "Start Session" to continue.', false);
+            } else if (response.avatarDeliveryFailed) {
+                addMessage('System', 'Response is shown above; avatar couldn\'t speak this time. Click "Start Session" if you need to reconnect.', false);
+            }
             if (response.sources) {
                 updateSources(response.sources, response.isFallback);
             }
 
             hideLoading();
-            updateStatus('Connected', 'success');
+            updateStatus(response.sessionExpired ? 'Disconnected' : 'Connected', response.sessionExpired ? 'danger' : 'success');
         } catch (error) {
             console.error('Error sending message:', error);
             addMessage('System', `Error: ${error.message}`, true);

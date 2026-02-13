@@ -223,12 +223,15 @@ namespace ERSimulatorApp.Services
                 if (!response.IsSuccessStatusCode)
                 {
                     var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogWarning("HeyGen streaming.start returned {StatusCode}: {Error}", response.StatusCode, errorContent);
-                    // Don't throw - session might already be started or this may not be required
-                    if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                    {
+                    // Don't throw - session might already be started (we call start before every task)
+                    bool alreadyConnected = response.StatusCode == System.Net.HttpStatusCode.BadRequest
+                        && errorContent.IndexOf("session state: connected", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (alreadyConnected)
+                        _logger.LogInformation("HeyGen session already started, skipping streaming.start: {Error}", errorContent);
+                    else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                         _logger.LogInformation("streaming.start returned Unauthorized - session may already be ready from streaming.new");
-                    }
+                    else
+                        _logger.LogWarning("HeyGen streaming.start returned {StatusCode}: {Error}", response.StatusCode, errorContent);
                 }
                 else
                 {

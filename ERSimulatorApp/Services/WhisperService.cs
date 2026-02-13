@@ -35,7 +35,8 @@ namespace ERSimulatorApp.Services
             // Resolve API key with multiple fallbacks
             _apiKey = configuration["OpenAI:ApiKey"]
                 ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY")
-                ?? Environment.GetEnvironmentVariable("OpenAI__ApiKey");
+                ?? Environment.GetEnvironmentVariable("OpenAI__ApiKey")
+                ?? "";
             
             _apiUrl = "https://api.openai.com/v1/audio/transcriptions";
 

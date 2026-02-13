@@ -307,14 +307,23 @@ namespace ERSimulatorApp.Controllers
                     });
                 }
 
-                // When RAG is offline, still send a fallback message to HeyGen so the avatar shows and speaks
-                var textToSend = ragResponse.IsFallback
+                // When RAG is offline with no real answer, use short fallback; when Ollama returned content, use it
+                const string genericOffline = "I'm sorry, my reference services are offline right now. Please try again later.";
+                var responseTextForStart = RemoveSourcesSection(ragResponse.Response ?? string.Empty);
+                bool hasRealContent = ragResponse.IsFallback
+                    && !string.IsNullOrWhiteSpace(ragResponse.Response)
+                    && !string.Equals(ragResponse.Response.Trim(), genericOffline, StringComparison.OrdinalIgnoreCase);
+                var textToSend = (ragResponse.IsFallback && !hasRealContent)
                     ? "I'm Dr. Dexter. My reference database is temporarily unavailable. You can still see me here—please try again in a moment."
-                    : RemoveSourcesSection(ragResponse.Response ?? string.Empty);
+                    : responseTextForStart;
 
-                if (ragResponse.IsFallback)
+                if (ragResponse.IsFallback && !hasRealContent)
                 {
                     _logger.LogWarning("RAG service is offline; sending fallback message to HeyGen so avatar still appears.");
+                }
+                else if (hasRealContent)
+                {
+                    _logger.LogInformation("Using Ollama fallback response for avatar (RAG HTTP was unavailable).");
                 }
 
                 // Step 3: Start the session if not already started
@@ -498,14 +507,22 @@ namespace ERSimulatorApp.Controllers
                 _logger.LogInformation("RAG database returned response with {SourceCount} medical source references", 
                     ragResponse.Sources?.Count ?? 0);
 
-                // When RAG is offline, still send a fallback message to HeyGen so the avatar shows and speaks
-                var textToSendTask = ragResponse.IsFallback
+                // When RAG is offline with no real answer, use short fallback; when Ollama returned content, use it
+                const string genericOfflineMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
+                bool hasRealFallbackContent = ragResponse.IsFallback
+                    && !string.IsNullOrWhiteSpace(ragResponse.Response)
+                    && !string.Equals(ragResponse.Response.Trim(), genericOfflineMessage, StringComparison.OrdinalIgnoreCase);
+                var textToSendTask = (ragResponse.IsFallback && !hasRealFallbackContent)
                     ? "I'm Dr. Dexter. My reference database is temporarily unavailable. You can still see me here—please try again in a moment."
                     : responseText;
 
-                if (ragResponse.IsFallback)
+                if (ragResponse.IsFallback && !hasRealFallbackContent)
                 {
                     _logger.LogWarning("RAG service is offline; sending fallback message to HeyGen so avatar still appears.");
+                }
+                else if (hasRealFallbackContent)
+                {
+                    _logger.LogInformation("Using Ollama fallback response for avatar (RAG HTTP was unavailable).");
                 }
 
                 // Step 2: Start the session if not already started (required before sending tasks)
@@ -558,23 +575,36 @@ namespace ERSimulatorApp.Controllers
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Error sending task to HeyGen: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
+                    bool sessionExpired = ex.Message.IndexOf("session state: closed", StringComparison.OrdinalIgnoreCase) >= 0;
+                    var links = (ragResponse.Sources ?? new List<SourceReference>()).Select(s => new ChatSourceLink
+                    {
+                        Title = string.IsNullOrWhiteSpace(s.Title)
+                            ? Path.GetFileName(s.Filename) ?? "Source"
+                            : s.Title,
+                        Preview = s.Preview,
+                        Similarity = s.Similarity,
+                        Url = BuildSourceUrl(s.Filename)
+                    }).Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList();
+                    // When session expired/closed, return 200 with transcript so the user still sees the answer; frontend can show "Session expired, click Start Session"
+                    if (sessionExpired)
+                    {
+                        return Ok(new
+                        {
+                            success = true,
+                            transcript = ragResponse.IsFallback ? textToSendTask : ragResponse.Response,
+                            sources = links,
+                            isFallback = ragResponse.IsFallback,
+                            avatarDeliveryFailed = true,
+                            sessionExpired = true
+                        });
+                    }
                     return StatusCode(500, new
                     {
                         success = false,
                         error = "Failed to send message to avatar, but received response from knowledge base",
                         message = ex.Message,
                         transcript = ragResponse.IsFallback ? textToSendTask : ragResponse.Response,
-                        sources = (ragResponse.Sources ?? new List<SourceReference>()).Select(s => new ChatSourceLink
-                        {
-                            Title = string.IsNullOrWhiteSpace(s.Title)
-                                ? Path.GetFileName(s.Filename) ?? "Source"
-                                : s.Title,
-                            Preview = s.Preview,
-                            Similarity = s.Similarity,
-                            Url = BuildSourceUrl(s.Filename)
-                        })
-                        .Where(link => !string.IsNullOrWhiteSpace(link.Url))
-                        .ToList(),
+                        sources = links,
                         isFallback = ragResponse.IsFallback
                     });
                 }

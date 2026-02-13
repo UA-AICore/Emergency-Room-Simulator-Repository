@@ -92,44 +92,46 @@ namespace ERSimulatorApp.Controllers
                 _logService.LogChat(logEntry);
 
                 // Build source links with improved logging
-                var sourceLinks = aiResponse.Sources
-                    .Select(source =>
+                List<SourceReference> sourcesList = aiResponse.Sources ?? new List<SourceReference>();
+                List<ChatSourceLink> sourceLinks = sourcesList
+                    .Select(src =>
                     {
-                        var url = BuildSourceUrl(source.Filename);
+                        var url = BuildSourceUrl(src.Filename);
                         var link = new ChatSourceLink
                         {
-                            Title = string.IsNullOrWhiteSpace(source.Title)
-                                ? Path.GetFileName(source.Filename) ?? "Source"
-                                : source.Title,
-                            Preview = source.Preview,
-                            Similarity = source.Similarity,
+                            Title = string.IsNullOrWhiteSpace(src.Title)
+                                ? Path.GetFileName(src.Filename) ?? "Source"
+                                : src.Title,
+                            Preview = src.Preview,
+                            Similarity = src.Similarity,
                             Url = url
                         };
-                        
-                        // Log source link creation for debugging
                         _logger.LogInformation("Source link created: Title={Title}, HasUrl={HasUrl}, Filename={Filename}",
-                            link.Title, !string.IsNullOrWhiteSpace(url), source.Filename);
-                        
+                            link.Title, !string.IsNullOrWhiteSpace(url), src.Filename ?? "");
                         return link;
                     })
                     .ToList();
                 
-                var sourcesWithUrls = sourceLinks.Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList();
-                var sourcesWithoutUrls = sourceLinks.Where(link => string.IsNullOrWhiteSpace(link.Url)).ToList();
+                List<ChatSourceLink> sourcesWithUrls = sourceLinks.Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList();
+                List<ChatSourceLink> sourcesWithoutUrls = sourceLinks.Where(link => string.IsNullOrWhiteSpace(link.Url)).ToList();
                 
-                _logger.LogInformation("Returning {Total} source links - {WithUrls} with URLs, {WithoutUrls} without URLs",
-                    sourceLinks.Count,
-                    sourcesWithUrls.Count,
-                    sourcesWithoutUrls.Count);
+                int totalCount = sourceLinks.Count;
+                int withUrlsCount = sourcesWithUrls.Count;
+                int withoutUrlsCount = sourcesWithoutUrls.Count;
+                _logger.LogInformation(
+                    "Returning {Total} source links - {WithUrls} with URLs, {WithoutUrls} without URLs",
+                    totalCount,
+                    withUrlsCount,
+                    withoutUrlsCount);
                 
-                // Log details about sources without URLs for debugging
-                if (sourcesWithoutUrls.Count > 0)
+                if (withoutUrlsCount > 0)
                 {
                     _logger.LogWarning("Sources without URLs (will be filtered out):");
-                    foreach (var source in sourcesWithoutUrls)
+                    foreach (var link in sourcesWithoutUrls)
                     {
-                        _logger.LogWarning("  - Title: {Title}, Filename: {Filename}", source.Title, 
-                            aiResponse.Sources.FirstOrDefault(s => Path.GetFileName(s.Filename) == source.Title)?.Filename ?? "unknown");
+                        var filename = sourcesList
+                            .FirstOrDefault(s => Path.GetFileName(s.Filename) == link.Title)?.Filename ?? "unknown";
+                        _logger.LogWarning("  - Title: {Title}, Filename: {Filename}", link.Title, filename);
                     }
                 }
                 
