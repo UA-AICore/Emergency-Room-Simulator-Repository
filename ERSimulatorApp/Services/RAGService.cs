@@ -36,7 +36,6 @@ namespace ERSimulatorApp.Services
         }
 
         private const string FallbackMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
-        private const string OllamaFallbackPrefix = "From general knowledge: ";
 
         public async Task<LLMResponse> GetResponseAsync(string prompt)
         {
@@ -80,7 +79,8 @@ namespace ERSimulatorApp.Services
                 var ragJson = JsonSerializer.Serialize(ragRequest);
                 var ragContent = new StringContent(ragJson, Encoding.UTF8, "application/json");
 
-                _logger.LogInformation($"Sending prompt to RAG server: {prompt.Substring(0, Math.Min(50, prompt.Length))}...");
+                _logger.LogInformation("Sending prompt to RAG server at {RagUrl}: {PromptPreview}...",
+                    _ragBaseUrl, prompt.Substring(0, Math.Min(50, prompt.Length)));
 
                 // Create request with headers to avoid thread-safety issues
                 var requestMessage = new HttpRequestMessage(HttpMethod.Post, _ragBaseUrl)
@@ -318,13 +318,15 @@ namespace ERSimulatorApp.Services
                     }
                 }
 
-                List<SourceReference> sourcesForResponse = references is null ? new List<SourceReference>() : references;
+                List<SourceReference> sourcesList = references == null ? new List<SourceReference>() : new List<SourceReference>(references);
+#pragma warning disable CS8601 // Both branches above are non-null List<SourceReference>
                 return new LLMResponse
                 {
                     Response = formattedResponse,
-                    Sources = sourcesForResponse,
+                    Sources = sourcesList,
                     IsFallback = false
                 };
+#pragma warning restore CS8601
             }
             catch (Exception ex)
             {
@@ -338,7 +340,7 @@ namespace ERSimulatorApp.Services
                         _logger.LogInformation("RAG unavailable; used Ollama fallback for avatar response.");
                         return new LLMResponse
                         {
-                            Response = OllamaFallbackPrefix + ollamaAnswer.Trim(),
+                            Response = ollamaAnswer.Trim(),
                             Sources = new List<SourceReference>(),
                             IsFallback = true
                         };

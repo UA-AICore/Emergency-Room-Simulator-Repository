@@ -30,16 +30,14 @@ builder.Services.AddControllers()
 // Register our custom services
 var llmTimeout = builder.Configuration.GetValue<int?>("Ollama:TimeoutSeconds") ?? 60;
 var openAITimeout = builder.Configuration.GetValue<int?>("OpenAI:TimeoutSeconds") ?? 60;
-var ragTimeout = builder.Configuration.GetValue<int?>("RAG:TimeoutSeconds") ?? 120; // Longer timeout for remote RAG service
+// Python RAG (embedding + Chroma + Ollama) can take 2+ min; always use 300s so config/env cannot shorten it
+const int ragTimeoutSeconds = 300;
 
-// Register base RAG service with HttpClient
+// Register base RAG service with HttpClient (300s timeout for Python RAG; do NOT add AddTransient<RAGService> or the typed client is overridden and timeout reverts to default 100s)
 builder.Services.AddHttpClient<RAGService>(client =>
 {
-    client.Timeout = TimeSpan.FromSeconds(ragTimeout);
+    client.Timeout = TimeSpan.FromSeconds(ragTimeoutSeconds);
 });
-
-// Explicitly register RAGService as a service for DI
-builder.Services.AddTransient<RAGService>();
 
 // Register Character Gateway service
 builder.Services.AddHttpClient<ICharacterGateway, CharacterGatewayService>(client =>

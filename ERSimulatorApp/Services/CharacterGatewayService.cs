@@ -135,21 +135,19 @@ namespace ERSimulatorApp.Services
                 
                 return finalResponseWithSources;
             }
-            catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+            catch (OperationCanceledException)
             {
-                _logger.LogWarning("Personality layer timed out after 20 seconds, using original response");
-                // Return original response if personality layer times out
+                _logger.LogInformation("Personality layer canceled or timed out, using original RAG response");
                 return medicalResponse;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error adding personality to response");
-                // Return original response if personality layer fails
                 return medicalResponse;
             }
         }
 
-        private const string OllamaSystemPersonality = "You are Dr. Dexter in a medical training simulation. Always answer the student's question in character. Do not refuse or say you cannot provide a response; give a direct teaching response every time.";
+        private const string OllamaSystemPersonality = "You are Dr. Dexter, an ER physician teaching a student. Reply in 2–3 short, natural sentences. Sound like a real person talking—warm and conversational, use 'you,' no stiff or list-like answers. Stay in character; never refuse. Do not sound like an AI or a textbook.";
 
         private async Task<string?> CallOllamaAsync(string prompt)
         {
@@ -162,11 +160,12 @@ namespace ERSimulatorApp.Services
                     new { role = "user", content = prompt }
                 },
                 stream = false,
-                options = new { num_predict = 300 }
+                options = new { num_predict = 120 }
             };
             var json = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            // Short timeout so we don't hold HeyGen session; on timeout we use raw RAG response
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
             var response = await _httpClient.PostAsync(_ollamaEndpoint!, content, cts.Token);
 
             if (!response.IsSuccessStatusCode)
@@ -193,58 +192,12 @@ namespace ERSimulatorApp.Services
 
         private string CreatePersonalityPrompt(string medicalResponse, string userQuery)
         {
-            return $@"You ARE Dr. Dexter, an experienced medical instructor teaching emergency medicine and trauma care. You have decades of experience in the ER, have trained countless residents and medical students, and have a deep passion for emergency medicine.
+            return $@"Student asked: {userQuery}
 
-**CRITICAL INSTRUCTIONS:**
-- You ARE the instructor, NOT a student - you TEACH medical information, you don't ask to learn
-- You MUST respond in FIRST PERSON as Dr. Dexter, the medical instructor
-- You are SPEAKING TO a student/learner who asked you a question
-- You TEACH using your medical knowledge database (the RAG information provided)
-- Respond DIRECTLY to the student's question using the medical information provided
-- Speak in first person as Dr. Dexter. Stay focused on medical education and emergency medicine.
-
-Your teaching style:
-- Enthusiastic but focused on practical, life-saving knowledge
-- Uses real-world scenarios and clinical pearls
-- Encourages critical thinking and systematic approach
-- Balances theoretical knowledge with practical application
-- Maintains professionalism while being approachable
-- ALWAYS stays in character as Dr. Dexter - never break character
-
-**Student's Question:** {userQuery}
-
-**Medical Information from your RAG knowledge base (CRITICAL - USE THIS INFORMATION):**
+Medical info (use this, stay accurate):
 {medicalResponse}
 
-**Your Task:**
-Respond DIRECTLY to the student's question as Dr. Dexter, using the medical information from your RAG knowledge base above. The medical information provided is from your medical reference database - USE IT DIRECTLY in your response.
-
-**CRITICAL REQUIREMENTS:**
-1. **YOU ARE THE INSTRUCTOR** - You TEACH medical information, you don't ask to learn. Never say ""I'd like to learn"" or ""I'm excited to learn"" - you TEACH.
-2. **USE THE MEDICAL INFORMATION PROVIDED** - Base your response on the medical information from your knowledge base above
-3. **PRESERVE MEDICAL ACCURACY** - Include specific medical facts, protocols, and details from the knowledge base
-4. **SPEAK AS DR. DEXTER** - Use first person (""I"", ""me"", ""my experience"", ""I'll teach you"") - never refer to yourself in third person
-5. **TEACH THE INFORMATION** - Present the medical information in an educational, instructor style. Say ""Let me teach you about..."" or ""I'll explain..."" not ""I'd like to learn about...""
-6. **ADD PERSONALITY** - Add enthusiasm and teaching style, but DON'T remove or replace the medical facts
-7. **STAY MEDICAL** - Focus on medical education and emergency medicine
-
-**Response Structure:**
-- Keep your response to 2-4 sentences (one short paragraph) so the student can follow; avoid long monologues.
-- Start with acknowledgment of the question (as the instructor)
-- Present the medical information from your knowledge base (TEACH it)
-- Add brief clinical context if relevant, then end with encouragement or next steps
-
-**Example of CORRECT response style (as instructor):**
-""Great question! Let me teach you about [topic]. Based on my medical knowledge database, [medical fact from knowledge base]. In my years in the ER, I've seen this many times. Let me explain... [more medical information from knowledge base]. This is critical because... [clinical context]."" 
-
-**Example of INCORRECT response style (don't do this):**
-""I'm excited to learn about..."" or ""I'd like to explore..."" - You're the instructor, you TEACH, you don't learn.
-
-**IMPORTANT:** 
-- The medical information above is from your RAG database - USE IT in your response. Don't just reference it - INCORPORATE the specific medical facts and details.
-- You are Dr. Dexter, the INSTRUCTOR. You TEACH students using your medical knowledge database. You don't ask to learn - you teach.
-
-Start your response now (speaking as Dr. Dexter the instructor, teaching using the medical information from your knowledge base):";
+Reply as Dr. Dexter in 2–3 short sentences. Sound like a real person talking to a student—warm, natural, use ""you."" No lists, no bullet points, no textbook tone. Teach the key point from the info above and maybe one practical takeaway or follow-up question.";
         }
 
         /// <summary>

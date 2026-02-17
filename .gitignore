@@ -71,6 +71,9 @@ __pycache__/
 venv/
 .venv/
 
+# ===== Local / machine-specific docs =====
+ERSimulatorApp/RAG-CONNECTIVITY.md
+
 # ===== RAG vector DB (do NOT commit) =====
 rag_backend/chroma_db/
 chroma_db/

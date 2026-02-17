@@ -159,6 +159,22 @@ class ChatMessage(BaseModel):
     content: str
 
 
+def extract_question_for_rag(full_prompt: str) -> str:
+    """
+    Use only the student's current question for RAG retrieval when the .NET app
+    sends the full conversation. Otherwise retrieval matches conversation text
+    (e.g. 'trauma', 'ER', 'simulation') and returns wrong PDF chunks.
+    """
+    marker = "Student's current question:"
+    if marker in full_prompt:
+        rest = full_prompt.split(marker, 1)[1].strip()
+        # First line after the marker (up to next double newline or instruction block)
+        first_block = rest.split("\n\n")[0].strip()
+        if first_block:
+            return first_block
+    return full_prompt.strip()
+
+
 class OpenAIChatRequest(BaseModel):
     model: Optional[str] = None
     messages: List[ChatMessage]
@@ -189,13 +205,11 @@ def _rag_answer(question: str, top_k: int = 4) -> tuple[str, list[str]]:
         {
             "role": "system",
             "content": (
-                "You are a trauma/ATLS medical assistant.\n"
-                "You MUST use ONLY the provided context to answer.\n"
-                "If the answer is not clearly in the context, reply: \"Not found in context.\"\n"
-                "Do NOT hallucinate or invent medical facts.\n"
-                "If the question asks for a list (injuries, steps, interventions), respond in bullet points.\n"
-                "Do NOT repeat the ABCDE list unless the user explicitly asks for ABCDE.\n"
-                "Keep answers concise and clinically accurate.\n"
+                "You are a friendly ER attending teaching a student. Use ONLY the provided context to answer.\n"
+                "If the answer is not in the context, say: \"Not found in context.\"\n"
+                "Do not hallucinate. Answer in 2–4 short sentences. Sound natural and conversational, like you're talking to someone in the room—not like a textbook or a formal report.\n"
+                "Use \"you\" and keep a warm, teaching tone. No bullet points unless the question explicitly asks for a list.\n"
+                "Do NOT repeat the ABCDE list unless the user asks for ABCDE.\n"
             ),
         },
         {
@@ -335,9 +349,9 @@ def chat_completions(req: OpenAIChatRequest):
     Accepts { model, messages, temperature?, max_tokens? }, returns { choices, context_preview }.
     """
     user_parts = [m.content for m in req.messages if m.role == "user"]
-    question = " ".join(user_parts).strip() if user_parts else ""
+    full_prompt = " ".join(user_parts).strip() if user_parts else ""
 
-    if not question:
+    if not full_prompt:
         return {
             "choices": [
                 {
@@ -349,7 +363,9 @@ def chat_completions(req: OpenAIChatRequest):
             "context_preview": [],
         }
 
-    answer, previews = _rag_answer(question, top_k=5)
+    # Use only the current question for retrieval so we get PDF chunks about the topic, not the conversation
+    question_for_rag = extract_question_for_rag(full_prompt)
+    answer, previews = _rag_answer(question_for_rag, top_k=5)
 
     return {
         "id": "rag-chat-" + str(uuid.uuid4()),

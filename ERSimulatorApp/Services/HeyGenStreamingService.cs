@@ -227,7 +227,7 @@ namespace ERSimulatorApp.Services
                     bool alreadyConnected = response.StatusCode == System.Net.HttpStatusCode.BadRequest
                         && errorContent.IndexOf("session state: connected", StringComparison.OrdinalIgnoreCase) >= 0;
                     if (alreadyConnected)
-                        _logger.LogInformation("HeyGen session already started, skipping streaming.start: {Error}", errorContent);
+                        _logger.LogDebug("HeyGen session already started, skipping streaming.start: {Error}", errorContent);
                     else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
                         _logger.LogInformation("streaming.start returned Unauthorized - session may already be ready from streaming.new");
                     else
@@ -314,9 +314,13 @@ namespace ERSimulatorApp.Services
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    _logger.LogError(
-                        "HeyGen streaming task error: {StatusCode} - {Error}\nRequest was: {RequestJson}",
-                        response.StatusCode, responseContent, json);
+                    bool sessionClosed = responseContent.IndexOf("invalid session state: closed", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (sessionClosed)
+                        _logger.LogWarning("HeyGen session already closed (response took too long); transcript will still be returned to user.");
+                    else
+                        _logger.LogError(
+                            "HeyGen streaming task error: {StatusCode} - {Error}\nRequest was: {RequestJson}",
+                            response.StatusCode, responseContent, json);
                     throw new HttpRequestException(
                         $"HeyGen API returned {response.StatusCode}: {responseContent}");
                 }
@@ -346,7 +350,8 @@ namespace ERSimulatorApp.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error sending HeyGen streaming task");
+                if (ex.Message.IndexOf("session state: closed", StringComparison.OrdinalIgnoreCase) < 0)
+                    _logger.LogError(ex, "Error sending HeyGen streaming task");
                 throw;
             }
         }

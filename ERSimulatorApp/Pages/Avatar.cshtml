@@ -128,10 +128,12 @@
     // Configuration & State
     // ============================================
     const API_BASE = '/api/avatar/v2/streaming';
+    const KEEPALIVE_INTERVAL_MS = 45000; // HeyGen sessions can close when idle; ping every 45s
     let liveKitRoom = null;
     let sessionData = null;
     let streamingToken = null; // Cache the token used to create the session
     let isSessionActive = false;
+    let keepaliveIntervalId = null;
     
     // Helper function to check video element state (can be called from console)
     window.checkVideoState = function() {
@@ -458,6 +460,7 @@
 
                         room.on(LiveKit.RoomEvent.Disconnected, () => {
                             console.log('Room disconnected');
+                            stopKeepalive();
                             updateStatus('Disconnected', 'danger');
                             isSessionActive = false;
                             sessionData = null;
@@ -602,6 +605,33 @@
         }
     }
 
+    async function sendKeepalive() {
+        if (!sessionData?.sessionId || !streamingToken || !isSessionActive) return;
+        try {
+            const res = await fetch(`${API_BASE}/session/keepalive`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId: sessionData.sessionId, streamingToken: streamingToken })
+            });
+            const data = await res.json();
+            if (!data.success) console.warn('[KEEPALIVE] Session may have closed:', data.error);
+        } catch (e) {
+            console.warn('[KEEPALIVE] Request failed:', e.message);
+        }
+    }
+
+    function startKeepalive() {
+        stopKeepalive();
+        keepaliveIntervalId = setInterval(sendKeepalive, KEEPALIVE_INTERVAL_MS);
+    }
+
+    function stopKeepalive() {
+        if (keepaliveIntervalId) {
+            clearInterval(keepaliveIntervalId);
+            keepaliveIntervalId = null;
+        }
+    }
+
     // ============================================
     // Session Management
     // ============================================
@@ -652,7 +682,7 @@
                 addMessage('System', `Note: Initial greeting failed (${error.message}). The avatar may appear static until you send a message.`, false);
             }
 
-            // Step 4: Enable UI
+            // Step 4: Enable UI and start keepalive to reduce idle disconnects
             isSessionActive = true;
             elements.messageInput.disabled = false;
             elements.sendButton.disabled = false;
@@ -660,6 +690,7 @@
             elements.startButton.hidden = true;
             elements.stopButton.hidden = false;
             updateStatus('Connected', 'success');
+            startKeepalive();
 
         } catch (error) {
             console.error('Error starting session:', error);
@@ -691,6 +722,7 @@
         try {
             elements.stopButton.disabled = true;
             updateStatus('Stopping...', 'warning');
+            stopKeepalive();
 
             if (sessionData) {
                 await stopSession(sessionData.sessionId);
@@ -1138,6 +1170,7 @@
 
     // Cleanup on page unload
     window.addEventListener('beforeunload', async () => {
+        stopKeepalive();
         if (sessionData) {
             await stopSession(sessionData.sessionId);
         }

@@ -78,7 +78,7 @@ namespace ERSimulatorApp.Controllers
             var lines = recent.Select(m => m.Role == "user"
                 ? "Student: " + m.Content
                 : "Dr. Dexter: " + m.Content);
-            return "Recent conversation:\n" + string.Join("\n", lines) + "\n\nStudent's current question: " + currentQuestion + "\n\nAnswer ONLY the student's CURRENT question above. Do not repeat your introduction or re-teach the previous topic. If they are asking about something new (e.g. a new symptom or concern), respond to that new question. Respond in 2–4 sentences. Be clear and concise.";
+            return "Recent conversation:\n" + string.Join("\n", lines) + "\n\nStudent's current question: " + currentQuestion + "\n\nAnswer ONLY the student's CURRENT question above. Respond in 2–3 short sentences. Sound natural and conversational, like a supportive teacher talking to a student—not like a textbook or a formal report.";
         }
 
         /// <summary>
@@ -574,8 +574,11 @@ namespace ERSimulatorApp.Controllers
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error sending task to HeyGen: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
                     bool sessionExpired = ex.Message.IndexOf("session state: closed", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (sessionExpired)
+                        _logger.LogWarning("HeyGen session closed (response took too long); returning transcript so user can still see the answer.");
+                    else
+                        _logger.LogError(ex, "Error sending task to HeyGen: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
                     var links = (ragResponse.Sources ?? new List<SourceReference>()).Select(s => new ChatSourceLink
                     {
                         Title = string.IsNullOrWhiteSpace(s.Title)
@@ -745,6 +748,33 @@ namespace ERSimulatorApp.Controllers
             
             _logger.LogDebug("BuildSourceUrl: Created URL {Url} for filename: {SafeFileName}", url, safeFileName);
             return url;
+        }
+
+        /// <summary>
+        /// Keep-alive: call HeyGen streaming.start for the session to reduce idle disconnects.
+        /// Frontend should call this periodically (e.g. every 45s) while the session is active.
+        /// </summary>
+        [HttpPost("session/keepalive")]
+        public async Task<IActionResult> KeepAlive([FromBody] AvatarSessionRequest request)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(request.SessionId))
+                {
+                    return BadRequest(new { error = "Session ID is required" });
+                }
+                if (string.IsNullOrWhiteSpace(request.StreamingToken))
+                {
+                    return BadRequest(new { error = "Streaming token is required for keepalive" });
+                }
+                await _heyGenService.StartStreamingSessionAsync(request.SessionId, request.StreamingToken);
+                return Ok(new { success = true });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Keepalive failed for session {SessionId} (session may already be closed)", request.SessionId);
+                return Ok(new { success = false, error = ex.Message });
+            }
         }
 
         /// <summary>
