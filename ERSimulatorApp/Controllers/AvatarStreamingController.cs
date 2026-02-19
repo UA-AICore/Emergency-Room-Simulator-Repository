@@ -362,7 +362,7 @@ namespace ERSimulatorApp.Controllers
                         {
                             success = false,
                             error = "Response text is empty after processing",
-                            transcript = ragResponse.Response ?? "No response generated"
+                            transcript = "No response generated"
                         });
                     }
                     
@@ -388,7 +388,7 @@ namespace ERSimulatorApp.Controllers
                         success = false,
                         error = "Failed to send message to avatar, but received response from knowledge base",
                         message = ex.Message,
-                        transcript = ragResponse.Response,
+                        transcript = textToSend,
                         sources = (ragResponse.Sources ?? new List<SourceReference>()).Select(s => new ChatSourceLink
                         {
                             Title = string.IsNullOrWhiteSpace(s.Title)
@@ -434,7 +434,7 @@ namespace ERSimulatorApp.Controllers
                 {
                     success = true,
                     userTranscript = transcript,
-                    avatarTranscript = ragResponse.IsFallback ? textToSend : ragResponse.Response,
+                    avatarTranscript = textToSend,
                     sources = sourceLinks.Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList(),
                     isFallback = ragResponse.IsFallback
                 });
@@ -474,9 +474,11 @@ namespace ERSimulatorApp.Controllers
                     request.ConversationId, request.Message.Substring(0, Math.Min(100, request.Message.Length)));
 
                 var history = _avatarHistory.GetOrAdd(request.ConversationId, _ => new List<ConversationMessage>());
+                List<ConversationMessage> historySnapshot;
                 lock (history)
                 {
                     history.Add(new ConversationMessage { Role = "user", Content = request.Message });
+                    historySnapshot = history.ToList();
                 }
 
                 // Step 1: Get RAG response (scripted greeting, or LLM with conversation context)
@@ -493,16 +495,12 @@ namespace ERSimulatorApp.Controllers
                 }
                 else
                 {
-                    var promptWithContext = BuildPromptWithAvatarContext(request.Message, history);
+                    var promptWithContext = BuildPromptWithAvatarContext(request.Message, historySnapshot);
                     _logger.LogInformation("Querying RAG database for medical information (with conversation context)...");
                     ragResponse = await _llmService.GetResponseAsync(promptWithContext);
                 }
 
                 var responseText = RemoveSourcesSection(ragResponse.Response ?? string.Empty);
-                lock (history)
-                {
-                    history.Add(new ConversationMessage { Role = "assistant", Content = responseText });
-                }
 
                 _logger.LogInformation("RAG database returned response with {SourceCount} medical source references", 
                     ragResponse.Sources?.Count ?? 0);
@@ -515,6 +513,11 @@ namespace ERSimulatorApp.Controllers
                 var textToSendTask = (ragResponse.IsFallback && !hasRealFallbackContent)
                     ? "I'm Dr. Dexter. My reference database is temporarily unavailable. You can still see me here—please try again in a moment."
                     : responseText;
+
+                lock (history)
+                {
+                    history.Add(new ConversationMessage { Role = "assistant", Content = textToSendTask });
+                }
 
                 if (ragResponse.IsFallback && !hasRealFallbackContent)
                 {
@@ -546,7 +549,7 @@ namespace ERSimulatorApp.Controllers
                         {
                             success = false,
                             error = "Response text is empty after processing",
-                            transcript = ragResponse.Response ?? "No response generated"
+                            transcript = "No response generated"
                         });
                     }
                     
@@ -594,7 +597,7 @@ namespace ERSimulatorApp.Controllers
                         return Ok(new
                         {
                             success = true,
-                            transcript = ragResponse.IsFallback ? textToSendTask : ragResponse.Response,
+                            transcript = textToSendTask,
                             sources = links,
                             isFallback = ragResponse.IsFallback,
                             avatarDeliveryFailed = true,
@@ -606,7 +609,7 @@ namespace ERSimulatorApp.Controllers
                         success = false,
                         error = "Failed to send message to avatar, but received response from knowledge base",
                         message = ex.Message,
-                        transcript = ragResponse.IsFallback ? textToSendTask : ragResponse.Response,
+                        transcript = textToSendTask,
                         sources = links,
                         isFallback = ragResponse.IsFallback
                     });
@@ -640,7 +643,7 @@ namespace ERSimulatorApp.Controllers
                 return Ok(new
                 {
                     success = true,
-                    transcript = ragResponse.IsFallback ? textToSendTask : ragResponse.Response,
+                    transcript = textToSendTask,
                     sources = sourceLinks.Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList(),
                     isFallback = ragResponse.IsFallback
                 });

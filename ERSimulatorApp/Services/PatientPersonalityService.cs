@@ -60,7 +60,10 @@ namespace ERSimulatorApp.Services
                 {
                     // Use multi-turn chat when we have history so the model continues the conversation instead of repeating
                     if (conversationHistory != null && conversationHistory.Count > 0)
-                        patientResponse = await CallOllamaWithHistoryAsync(conversationHistory);
+                    {
+                        var systemPrompt = BuildPatientSystemPrompt(currentEmotionalState, conversationHistory, userMessage);
+                        patientResponse = await CallOllamaWithHistoryAsync(conversationHistory, userMessage, systemPrompt);
+                    }
                     else
                         patientResponse = await CallOllamaAsync(patientPrompt);
                 }
@@ -126,16 +129,31 @@ namespace ERSimulatorApp.Services
 
         private const string OllamaSystemPatient = "You are Mike, a patient in the ER. Reply with ONLY the words you would say out loud—no narrative. Answer what the provider just asked. Do not repeat your full story or intro; if they asked for more detail, give new details (e.g. where the pain is, does it spread, what you were doing).";
 
-        private async Task<string?> CallOllamaWithHistoryAsync(List<ConversationMessage> history)
+        /// <summary>Builds the system prompt used when calling Ollama with conversation history, so emotional state and escalation guidance are included.</summary>
+        private string BuildPatientSystemPrompt(PatientEmotionalState? currentEmotionalState, List<ConversationMessage>? conversationHistory, string currentUserMessage)
+        {
+            var emotionalState = currentEmotionalState ?? PatientEmotionalState.Neutral;
+            var emotionalStateDescription = GetEmotionalStateDescription(emotionalState);
+            var escalationGuidance = GetEscalationGuidance(emotionalState, conversationHistory, currentUserMessage);
+            return $@"{OllamaSystemPatient}
+
+**CURRENT EMOTIONAL STATE:** {emotionalStateDescription}
+{escalationGuidance}
+
+**CRITICAL:** You are the patient Mike. Respond with ONLY the words you would say out loud. Your emotional state can shift based on how the provider treats you (empathy and action may calm you; repetition or dismissal may agitate you). React to their latest message; do not repeat your full story.";
+        }
+
+        private async Task<string?> CallOllamaWithHistoryAsync(List<ConversationMessage> history, string currentUserMessage, string systemPrompt)
         {
             var recent = history.TakeLast(12).ToList();
             var messages = new List<object>();
-            messages.Add(new { role = "system", content = OllamaSystemPatient });
+            messages.Add(new { role = "system", content = systemPrompt });
             foreach (var msg in recent)
             {
                 var role = msg.Role == "user" ? "user" : "assistant";
                 messages.Add(new { role = role, content = msg.Content });
             }
+            messages.Add(new { role = "user", content = currentUserMessage });
             var requestBody = new
             {
                 model = _ollamaModel,

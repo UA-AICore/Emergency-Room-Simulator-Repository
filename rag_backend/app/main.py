@@ -31,7 +31,8 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "meta-llama/Llama-3.2-1B-instruct")
 
 # Local Ollama (only when USE_REMOTE_LLM=0)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:1b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "180"))  # seconds; gemma2 can be slow
 
 # ---------- ChromaDB setup ----------
 DB_PATH = "vector_store/chroma"
@@ -96,9 +97,11 @@ def call_local_ollama(
     messages: List[Dict[str, str]],
     temperature: float = 0.1,
     max_tokens: int = 400,
-    timeout: int = 120,
+    timeout: Optional[int] = None,
 ) -> str:
     """Call local Ollama API."""
+    if timeout is None:
+        timeout = OLLAMA_TIMEOUT
     # --- ORIGINAL (commented out so we can revert if needed) ---
     # def call_local_ollama(messages: List[Dict[str, str]]):
     #     raise RuntimeError("Local Ollama disabled (USE_REMOTE_LLM should be 1).")
@@ -110,7 +113,7 @@ def call_local_ollama(
         "stream": False,
         "options": {"temperature": temperature, "num_predict": max_tokens},
     }
-    r = requests.post(url, json=payload, timeout=timeout)
+    r = requests.post(url, json=payload, timeout=timeout or OLLAMA_TIMEOUT)
     if r.status_code >= 400:
         raise RuntimeError(f"Ollama error {r.status_code}: {r.text}")
     data = r.json()
@@ -205,11 +208,11 @@ def _rag_answer(question: str, top_k: int = 4) -> tuple[str, list[str]]:
         {
             "role": "system",
             "content": (
-                "You are a friendly ER attending teaching a student. Use ONLY the provided context to answer.\n"
-                "If the answer is not in the context, say: \"Not found in context.\"\n"
-                "Do not hallucinate. Answer in 2–4 short sentences. Sound natural and conversational, like you're talking to someone in the room—not like a textbook or a formal report.\n"
-                "Use \"you\" and keep a warm, teaching tone. No bullet points unless the question explicitly asks for a list.\n"
-                "Do NOT repeat the ABCDE list unless the user asks for ABCDE.\n"
+                "You are an ER doctor teaching a student. Use ONLY the context below to answer. You are speaking TO the student—give them the answer directly, as if you are explaining it yourself.\n"
+                "FORBIDDEN: Do not refer to the context as text or a document. Never say: 'this text focuses on', 'the document says', 'it talks about', 'the context mentions'. Never describe what the source says; instead, teach that information as your own.\n"
+                "GOOD: 'With blunt abdominal trauma, patients often have tenderness, guarding, and rigidity—so we examine them carefully.'\n"
+                "BAD: 'This text focuses on trauma and talks about abdominal tenderness.'\n"
+                "If the answer is not in the context, say: \"Not found in context.\" Answer in 2–4 short sentences. Use \"you\" and a warm tone. No bullet points unless they ask for a list. Do NOT repeat the ABCDE list unless they ask for ABCDE.\n"
             ),
         },
         {
@@ -224,7 +227,13 @@ def _rag_answer(question: str, top_k: int = 4) -> tuple[str, list[str]]:
         else:
             answer = call_local_ollama(messages)
     except Exception as e:
-        return f"Error calling LLM: {e}", previews
+        # Don't expose raw errors (e.g. "Read timed out", connection refused) to the user
+        import logging
+        logging.warning("RAG LLM call failed: %s", e)
+        return (
+            "I couldn't look that up in my references right now. Please try again in a moment.",
+            previews,
+        )
 
     return answer, previews
 

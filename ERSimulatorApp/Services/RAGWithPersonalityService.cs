@@ -29,7 +29,8 @@ namespace ERSimulatorApp.Services
             try
             {
                 // Check if personality is enabled
-                var personalityEnabled = _configuration.GetValue<bool?>("Personality:Enabled") ?? true;
+                // Default false so the avatar speaks the RAG answer before the HeyGen session closes; set true to add Ollama "Dr. Dexter" rewording (adds latency).
+                var personalityEnabled = _configuration.GetValue<bool?>("Personality:Enabled") ?? false;
 
                 if (!personalityEnabled)
                 {
