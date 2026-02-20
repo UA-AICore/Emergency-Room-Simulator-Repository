@@ -20,6 +20,7 @@ namespace ERSimulatorApp.Services
         private readonly string? _ollamaEndpoint;
         private readonly string? _ollamaModel;
         private readonly bool _useLocalOllama;
+        private readonly int _ollamaTimeoutSeconds;
 
         public RAGService(HttpClient httpClient, ILogger<RAGService> logger, IConfiguration configuration)
         {
@@ -33,6 +34,7 @@ namespace ERSimulatorApp.Services
             _ollamaEndpoint = configuration["Ollama:Endpoint"]?.Trim();
             _ollamaModel = configuration["Ollama:Model"]?.Trim();
             _useLocalOllama = configuration.GetValue<bool>("RAG:UseLocalOllama");
+            _ollamaTimeoutSeconds = configuration.GetValue("Ollama:TimeoutSeconds", 120);
         }
 
         private const string FallbackMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
@@ -374,7 +376,7 @@ namespace ERSimulatorApp.Services
                 };
                 var json = JsonSerializer.Serialize(requestBody);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(_ollamaTimeoutSeconds));
                 var response = await _httpClient.PostAsync(_ollamaEndpoint!, content, cts.Token);
                 if (!response.IsSuccessStatusCode)
                     return null;
@@ -383,6 +385,11 @@ namespace ERSimulatorApp.Services
                 var root = doc.RootElement;
                 if (root.TryGetProperty("message", out var msg) && msg.TryGetProperty("content", out var contentEl))
                     return contentEl.GetString();
+                return null;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Ollama fallback timed out or was canceled (timeout: {Timeout}s).", _ollamaTimeoutSeconds);
                 return null;
             }
             catch (Exception ex)
