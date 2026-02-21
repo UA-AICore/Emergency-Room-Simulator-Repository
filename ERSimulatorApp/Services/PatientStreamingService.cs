@@ -5,8 +5,8 @@ using System.Text.Json;
 namespace ERSimulatorApp.Services
 {
     /// <summary>
-    /// HeyGen Streaming Service for Patient Avatar
-    /// Uses HeyGenPatient configuration section
+    /// HeyGen Streaming Service for Patient Avatar.
+    /// Uses HeyGenPatient:ApiKey if set; otherwise uses HeyGen:ApiKey (same key as Dr. Dexter is fine for both avatars).
     /// </summary>
     public interface IPatientStreamingService
     {
@@ -21,7 +21,7 @@ namespace ERSimulatorApp.Services
     {
         private readonly HttpClient _httpClient;
         private readonly ILogger<PatientStreamingService> _logger;
-        private readonly string _apiKey;
+        private readonly IConfiguration _configuration;
         private readonly string _apiUrl;
         private readonly string _avatarName;
 
@@ -32,14 +32,10 @@ namespace ERSimulatorApp.Services
         {
             _httpClient = httpClient;
             _logger = logger;
-            _apiKey = configuration["HeyGenPatient:ApiKey"] ?? throw new InvalidOperationException("HeyGenPatient:ApiKey is required");
+            _configuration = configuration;
             _apiUrl = "https://api.heygen.com/v1/";
-            _avatarName = configuration["HeyGenPatient:AvatarId"] ?? throw new InvalidOperationException("HeyGenPatient:AvatarId is required");
+            _avatarName = configuration["HeyGenPatient:AvatarId"]?.Trim() ?? throw new InvalidOperationException("HeyGenPatient:AvatarId is required for patient avatar");
 
-            if (string.IsNullOrWhiteSpace(_apiKey))
-            {
-                throw new InvalidOperationException("HeyGen Patient API key is not configured");
-            }
             if (string.IsNullOrWhiteSpace(_avatarName))
             {
                 throw new InvalidOperationException("HeyGen Patient Avatar ID is not configured");
@@ -50,44 +46,74 @@ namespace ERSimulatorApp.Services
 
         public async Task<string> GetStreamingTokenAsync()
         {
+            var patientKey = (_configuration["HeyGenPatient:ApiKey"] ?? "").Trim();
+            var mainKey = (_configuration["HeyGen:ApiKey"] ?? "").Trim();
+            var primaryKey = !string.IsNullOrEmpty(patientKey) ? patientKey : mainKey;
+            if (string.IsNullOrEmpty(primaryKey))
+            {
+                throw new InvalidOperationException("HeyGen Patient API key is not configured. Set HeyGenPatient:ApiKey or HeyGen:ApiKey in appsettings.");
+            }
+            if (primaryKey == mainKey && string.IsNullOrEmpty(patientKey))
+                _logger.LogInformation("Using HeyGen:ApiKey for patient streaming (HeyGenPatient:ApiKey not set).");
+
             try
             {
                 _logger.LogInformation("Getting HeyGen streaming token for patient");
-
-                var requestMessage = new HttpRequestMessage(HttpMethod.Post, $"{_apiUrl}streaming.create_token");
-                requestMessage.Headers.Add("X-Api-Key", _apiKey);
-
-                var response = await _httpClient.SendAsync(requestMessage);
-
-                if (!response.IsSuccessStatusCode)
+                string? token = await TryGetTokenWithKeyAsync(primaryKey);
+                if (token != null)
                 {
-                    var errorContent = await response.Content.ReadAsStringAsync();
-                    _logger.LogError("HeyGen streaming token error: {StatusCode} - {Error}", response.StatusCode, errorContent);
-                    throw new HttpRequestException($"HeyGen API returned {response.StatusCode}: {errorContent}");
+                    _logger.LogInformation("HeyGen streaming token obtained successfully");
+                    return token;
                 }
 
-                var responseContent = await response.Content.ReadAsStringAsync();
-                using var jsonDoc = JsonDocument.Parse(responseContent);
-                
-                if (jsonDoc.RootElement.TryGetProperty("data", out var dataElement) &&
-                    dataElement.TryGetProperty("token", out var tokenElement))
+                if (!string.IsNullOrEmpty(patientKey) && !string.IsNullOrEmpty(mainKey) && patientKey != mainKey)
                 {
-                    var token = tokenElement.GetString();
-                    if (!string.IsNullOrEmpty(token))
+                    _logger.LogInformation("Retrying with HeyGen:ApiKey (patient key returned 503 or Unauthorized).");
+                    token = await TryGetTokenWithKeyAsync(mainKey);
+                    if (token != null)
                     {
-                        _logger.LogInformation("HeyGen streaming token obtained successfully");
+                        _logger.LogInformation("HeyGen streaming token obtained for patient using HeyGen:ApiKey.");
                         return token;
                     }
                 }
 
-                _logger.LogError("Failed to parse token from response: {Response}", responseContent);
-                throw new InvalidOperationException("Failed to get streaming token from HeyGen");
+                throw new HttpRequestException("HeyGen API returned ServiceUnavailable or Unauthorized for streaming token. Ensure your API key has Streaming API access (same key as Dr. Dexter is often sufficient).");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting HeyGen streaming token");
                 throw;
             }
+        }
+
+        private async Task<string?> TryGetTokenWithKeyAsync(string apiKey)
+        {
+            var requestMessage = new HttpRequestMessage(HttpMethod.Post, $"{_apiUrl}streaming.create_token");
+            requestMessage.Headers.Add("X-Api-Key", apiKey);
+
+            var response = await _httpClient.SendAsync(requestMessage);
+            var responseContent = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("HeyGen streaming token attempt: {StatusCode} - {Error}", response.StatusCode, responseContent);
+                if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ||
+                    (int)response.StatusCode == 503 ||
+                    response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    return null;
+                throw new HttpRequestException($"HeyGen API returned {response.StatusCode}: {responseContent}");
+            }
+
+            using var jsonDoc = JsonDocument.Parse(responseContent);
+            if (jsonDoc.RootElement.TryGetProperty("data", out var dataElement) &&
+                dataElement.TryGetProperty("token", out var tokenElement))
+            {
+                var token = tokenElement.GetString();
+                if (!string.IsNullOrWhiteSpace(token))
+                    return token;
+            }
+            _logger.LogError("Failed to parse token from response: {Response}", responseContent);
+            return null;
         }
 
         public async Task<HeyGenStreamingSessionData> CreateStreamingSessionAsync()
