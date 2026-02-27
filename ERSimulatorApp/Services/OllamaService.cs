@@ -8,7 +8,7 @@ namespace ERSimulatorApp.Services
 {
     public interface ILLMService
     {
-        Task<LLMResponse> GetResponseAsync(string prompt);
+        Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null);
     }
 
     public class OllamaService : ILLMService
@@ -26,7 +26,7 @@ namespace ERSimulatorApp.Services
             _model = configuration["Ollama:Model"] ?? "phi3:mini";
         }
 
-        public async Task<LLMResponse> GetResponseAsync(string prompt)
+        public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null)
         {
             try
             {

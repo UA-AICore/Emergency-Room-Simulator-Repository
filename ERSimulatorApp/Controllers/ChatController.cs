@@ -18,6 +18,7 @@ namespace ERSimulatorApp.Controllers
         private readonly ChatLogService _logService;
         private readonly IWhisperService _whisperService;
         private readonly ILogger<ChatController> _logger;
+        private readonly IConfiguration _configuration;
         private readonly string _sourceDocumentsPath;
         private const string OfflineMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
 
@@ -33,6 +34,7 @@ namespace ERSimulatorApp.Controllers
             _logService = logService;
             _whisperService = whisperService;
             _logger = logger;
+            _configuration = configuration;
             var configuredPath = configuration["RAG:SourceDocumentsPath"];
             if (string.IsNullOrWhiteSpace(configuredPath))
             {
@@ -62,10 +64,19 @@ namespace ERSimulatorApp.Controllers
                 }
 
                 var startTime = DateTime.UtcNow;
-                _logger.LogInformation($"Processing chat message for session {request.SessionId}");
+                _logger.LogInformation($"Processing chat message for session {request.SessionId} (UseClaude: {request.UseClaude})");
+
+                // Choose model: Claude when user toggled, else default (Ollama/gemma via RAG)
+                string? modelOverride = null;
+                if (request.UseClaude)
+                {
+                    modelOverride = _configuration["RAG:ClaudeModel"]?.Trim();
+                    if (string.IsNullOrEmpty(modelOverride))
+                        modelOverride = "claude-opus-4-6";
+                }
 
                 // Get AI response
-                var aiResponse = await _llmService.GetResponseAsync(request.Message);
+                var aiResponse = await _llmService.GetResponseAsync(request.Message, modelOverride);
                 
                 // Log sources received from LLM service
                 _logger.LogInformation("ChatController received response with {SourceCount} sources from LLM service", 

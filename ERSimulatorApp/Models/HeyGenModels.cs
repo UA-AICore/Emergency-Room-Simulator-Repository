@@ -55,6 +55,8 @@ namespace ERSimulatorApp.Models
         /// If provided, this token will be reused for the streaming.task call.
         /// </summary>
         public string? StreamingToken { get; set; }
+        /// <summary>When true, use Claude (RAG) instead of local Ollama/gemma for the avatar's answer.</summary>
+        public bool UseClaude { get; set; }
     }
 
     public class AvatarResponse

@@ -19,6 +19,7 @@ namespace ERSimulatorApp.Controllers
         private readonly ILLMService _llmService;
         private readonly IWhisperService _whisperService;
         private readonly ILogger<AvatarStreamingController> _logger;
+        private readonly IConfiguration _configuration;
         private readonly string _sourceDocumentsPath;
         private readonly int _maxSpeechChars;
 
@@ -34,6 +35,7 @@ namespace ERSimulatorApp.Controllers
             _llmService = llmService;
             _whisperService = whisperService;
             _logger = logger;
+            _configuration = configuration;
 
             var configuredPath = configuration["RAG:SourceDocumentsPath"];
             if (string.IsNullOrWhiteSpace(configuredPath))
@@ -136,7 +138,7 @@ namespace ERSimulatorApp.Controllers
         /// Complete voice conversation flow
         /// </summary>
         [HttpPost("audio")]
-        public async Task<IActionResult> ProcessAudio([FromForm] string conversationId, [FromForm] string? streamingToken)
+        public async Task<IActionResult> ProcessAudio([FromForm] string conversationId, [FromForm] string? streamingToken, [FromForm] bool useClaude = false)
         {
             try
             {
@@ -286,12 +288,13 @@ namespace ERSimulatorApp.Controllers
                     });
                 }
 
-                // Step 2: Get RAG response from medical knowledge base
-                _logger.LogInformation("Step 2: Querying RAG database for medical information...");
+                // Step 2: Get RAG response from medical knowledge base (Ollama or Claude per user toggle)
+                string? modelOverride = useClaude ? (_configuration["RAG:ClaudeModel"]?.Trim() ?? "claude-opus-4-6") : null;
+                _logger.LogInformation("Step 2: Querying RAG database for medical information (UseClaude: {UseClaude})...", useClaude);
                 LLMResponse ragResponse;
                 try
                 {
-                    ragResponse = await _llmService.GetResponseAsync(transcript);
+                    ragResponse = await _llmService.GetResponseAsync(transcript, modelOverride);
                     _logger.LogInformation("RAG database returned response with {SourceCount} medical source references", 
                         ragResponse.Sources?.Count ?? 0);
                 }
@@ -496,8 +499,9 @@ namespace ERSimulatorApp.Controllers
                 else
                 {
                     var promptWithContext = BuildPromptWithAvatarContext(request.Message, historySnapshot);
-                    _logger.LogInformation("Querying RAG database for medical information (with conversation context)...");
-                    ragResponse = await _llmService.GetResponseAsync(promptWithContext);
+                    string? modelOverride = request.UseClaude ? (_configuration["RAG:ClaudeModel"]?.Trim() ?? "claude-opus-4-6") : null;
+                    _logger.LogInformation("Querying RAG database for medical information (with conversation context, UseClaude: {UseClaude})...", request.UseClaude);
+                    ragResponse = await _llmService.GetResponseAsync(promptWithContext, modelOverride);
                 }
 
                 var responseText = RemoveSourcesSection(ragResponse.Response ?? string.Empty);

@@ -55,9 +55,11 @@ chat_logs.txt
 .env
 .env.local
 .env.*.local
+.env.secrets
 .env.development
 .env.production
 .env.staging
+rag_backend/.env.secrets
 
 # ===== API Keys and Secrets (CRITICAL - DO NOT COMMIT) =====
 **/appsettings.json

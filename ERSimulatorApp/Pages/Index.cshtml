@@ -1,4 +1,4 @@
-﻿@page
+@page
 @model IndexModel
 @{
     ViewData["Title"] = "ER Simulator Chat";
@@ -62,7 +62,7 @@
                         </p>
                         <p class="text-muted small mt-3">
                             <i class="fas fa-info-circle me-1"></i>
-                            Powered by Llama-3.2-1B with RAG-enhanced medical knowledge
+                            Powered by local Ollama or Claude with RAG-enhanced medical knowledge
                         </p>
                     </div>
                 </div>
@@ -80,15 +80,21 @@
                             <i class="fas fa-paper-plane me-2"></i>Send
                         </button>
                     </div>
-                    <div class="mt-2 d-flex justify-content-between align-items-center">
+                    <div class="mt-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <small class="text-muted">
                             <i class="fas fa-keyboard me-1"></i>
                             Press Enter to send • Shift+Enter for new line
                         </small>
-                        <small class="text-muted">
-                            <i class="fas fa-book-medical me-1"></i>
-                            RAG-powered with trauma documents
-                        </small>
+                        <div class="d-flex align-items-center gap-2">
+                            <label class="d-flex align-items-center gap-1 small text-muted mb-0 cursor-pointer">
+                                <input type="checkbox" id="useClaudeToggle" class="form-check-input" title="Use Claude 4.6 Opus instead of local Ollama (same RAG PDFs)">
+                                <span><i class="fas fa-brain me-1"></i>Use Claude</span>
+                            </label>
+                            <small class="text-muted">
+                                <i class="fas fa-book-medical me-1"></i>
+                                RAG-powered
+                            </small>
+                        </div>
                     </div>
                     <div id="voiceStatus" class="mt-2" style="display: none;">
                         <small class="text-warning">
@@ -263,6 +269,7 @@
             loadingModal.show();
             
             try {
+                const useClaude = document.getElementById('useClaudeToggle')?.checked === true;
                 const response = await fetch('/api/chat/send', {
                     method: 'POST',
                     headers: {
@@ -270,7 +277,8 @@
                     },
                     body: JSON.stringify({
                         message: message,
-                        sessionId: sessionId
+                        sessionId: sessionId,
+                        useClaude: useClaude
                     })
                 });
                 

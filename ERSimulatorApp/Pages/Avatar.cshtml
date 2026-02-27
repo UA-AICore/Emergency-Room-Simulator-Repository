@@ -75,15 +75,21 @@
                             <i class="fas fa-stop me-2"></i>Stop Session
                         </button>
                     </div>
-                    <div class="mt-2 d-flex justify-content-between align-items-center">
+                    <div class="mt-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <small class="text-muted">
                             <i class="fas fa-keyboard me-1"></i>
                             Type or <i class="fas fa-microphone me-1"></i> speak your question
                         </small>
-                        <small class="text-muted">
-                            <i class="fas fa-video me-1"></i>
-                            Powered by HeyGen Avatar + RAG-enhanced medical knowledge
-                        </small>
+                        <div class="d-flex align-items-center gap-2">
+                            <label class="d-flex align-items-center gap-1 small text-muted mb-0 cursor-pointer">
+                                <input type="checkbox" id="useClaudeToggle" class="form-check-input" title="Use Claude instead of local Ollama (same RAG PDFs)">
+                                <span><i class="fas fa-brain me-1"></i>Use Claude</span>
+                            </label>
+                            <small class="text-muted">
+                                <i class="fas fa-video me-1"></i>
+                                HeyGen + RAG
+                            </small>
+                        </div>
                     </div>
                     <div id="recordingStatus" class="mt-2" hidden>
                         <small class="text-warning">
@@ -541,10 +547,12 @@
             throw new Error('Streaming token is required. Please restart the session.');
         }
 
+        const useClaude = document.getElementById('useClaudeToggle')?.checked === true;
         const payload = {
             message: message,
             conversationId: sessionId,
-            streamingToken: streamingToken // Include the cached token
+            streamingToken: streamingToken, // Include the cached token
+            useClaude: useClaude
         };
 
         console.log('[API] Calling POST', `${API_BASE}/task`, {
@@ -1054,6 +1062,8 @@
             } else {
                 console.warn('[AUDIO] WARNING: streamingToken is missing!');
             }
+            const useClaude = document.getElementById('useClaudeToggle')?.checked === true;
+            formData.append('useClaude', useClaude ? 'true' : 'false');
 
             // Log FormData contents for debugging
             console.log('[AUDIO] FormData contents:');

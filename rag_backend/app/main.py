@@ -18,8 +18,18 @@ from chromadb import PersistentClient
 import chromadb.utils.embedding_functions as ef
 from pypdf import PdfReader
 
-# ---------- Load environment (.env) ----------
+# ---------- Load environment ----------
+# Non-secret config (OLLAMA_URL, etc.) — can live in .env
 load_dotenv()
+# Untracked secrets: rag_backend/.env.secrets (in .gitignore). Create it with ANTHROPIC_API_KEY=...
+_rag_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_env_secrets = os.path.join(_rag_root, ".env.secrets")
+if os.path.isfile(_env_secrets):
+    load_dotenv(_env_secrets)
+# Override: RAG_SECRETS_ENV can point to another path if you prefer
+_secrets_env = os.getenv("RAG_SECRETS_ENV", "").strip()
+if _secrets_env and os.path.isfile(_secrets_env):
+    load_dotenv(_secrets_env)
 
 # ---------- Config flags ----------
 USE_REMOTE_LLM = os.getenv("USE_REMOTE_LLM", "0") == "1"
@@ -29,10 +39,17 @@ OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "").rstrip("/")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "meta-llama/Llama-3.2-1B-instruct")
 
-# Local Ollama (only when USE_REMOTE_LLM=0)
+# Local Ollama (only when USE_REMOTE_LLM=0 and model is not claude)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "180"))  # seconds; gemma2 can be slow
+
+# Claude (Anthropic) — key from .env.secrets (untracked) or env
+# Model ID for Claude Opus 4.6: claude-opus-4-6 (see https://docs.anthropic.com/en/docs/about-claude/models)
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6").strip() or "claude-opus-4-6"
+ANTHROPIC_TIMEOUT = int(os.getenv("ANTHROPIC_TIMEOUT", "120"))
+ANTHROPIC_VERSION = "2023-06-01"
 
 # ---------- ChromaDB setup ----------
 DB_PATH = "vector_store/chroma"
@@ -120,6 +137,42 @@ def call_local_ollama(
     return data.get("message", {}).get("content", "")
 
 
+def call_claude(
+    system: str,
+    user_content: str,
+    max_tokens: int = 1024,
+    timeout: Optional[int] = None,
+) -> str:
+    """Call Anthropic Messages API (e.g. Claude 4.6 Opus). Uses system + single user message."""
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("Claude requested but ANTHROPIC_API_KEY is not set.")
+    timeout = timeout or ANTHROPIC_TIMEOUT
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "Content-Type": "application/json",
+    }
+    payload: Dict[str, Any] = {
+        "model": ANTHROPIC_MODEL,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": [{"role": "user", "content": user_content}],
+    }
+    s = requests.Session()
+    s.mount("https://", HTTPAdapter(max_retries=Retry(total=2, backoff_factor=0.5)))
+    r = s.post(url, headers=headers, json=payload, timeout=timeout)
+    if r.status_code >= 400:
+        raise RuntimeError(f"Claude API error {r.status_code}: {r.text}")
+    data = r.json()
+    # Messages API returns content as array of blocks (e.g. [{"type": "text", "text": "..."}])
+    content = data.get("content") or []
+    if not content:
+        return ""
+    block = content[0] if isinstance(content[0], dict) else {}
+    return block.get("text", "")
+
+
 # ---------- PDF helpers ----------
 
 def read_pdf_text(path: str) -> str:
@@ -185,8 +238,16 @@ class OpenAIChatRequest(BaseModel):
     max_tokens: Optional[int] = 2000
 
 
-def _rag_answer(question: str, top_k: int = 4) -> tuple[str, list[str]]:
-    """Run RAG: query Chroma, build context, call LLM. Returns (answer, context_preview)."""
+def _use_claude(model: Optional[str]) -> bool:
+    """True if the requested model is Claude (user chose Claude mode)."""
+    if not model:
+        return False
+    return "claude" in model.lower()
+
+
+def _rag_answer(question: str, top_k: int = 4, model: Optional[str] = None) -> tuple[str, list[str]]:
+    """Run RAG: query Chroma, build context, call LLM. Returns (answer, context_preview).
+    model: optional request model; if it contains 'claude', use Claude API; else Ollama or remote."""
     top_k = max(1, min(10, top_k))
     results = collection.query(query_texts=[question], n_results=top_k)
 
@@ -204,32 +265,34 @@ def _rag_answer(question: str, top_k: int = 4) -> tuple[str, list[str]]:
         previews.append(f"- {label} {d[:700]}")
 
     context_text = "\n".join(previews)
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are an ER doctor teaching a student. Use ONLY the context below to answer. You are speaking TO the student—give them the answer directly, as if you are explaining it yourself.\n"
-                "FORBIDDEN: Do not refer to the context as text or a document. Never say: 'this text focuses on', 'the document says', 'it talks about', 'the context mentions'. Never describe what the source says; instead, teach that information as your own.\n"
-                "GOOD: 'With blunt abdominal trauma, patients often have tenderness, guarding, and rigidity—so we examine them carefully.'\n"
-                "BAD: 'This text focuses on trauma and talks about abdominal tenderness.'\n"
-                "If the answer is not in the context, say: \"Not found in context.\" Answer in 2–4 short sentences. Use \"you\" and a warm tone. No bullet points unless they ask for a list. Do NOT repeat the ABCDE list unless they ask for ABCDE.\n"
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"Question: {question}\n\nContext:\n{context_text}",
-        },
-    ]
+    system_prompt = (
+        "You are an ER doctor teaching a student. Use ONLY the context below to answer. You are speaking TO the student—give them the answer directly, as if you are explaining it yourself.\n"
+        "FORBIDDEN: Do not refer to the context as text or a document. Never say: 'this text focuses on', 'the document says', 'it talks about', 'the context mentions'. Never describe what the source says; instead, teach that information as your own.\n"
+        "GOOD: 'With blunt abdominal trauma, patients often have tenderness, guarding, and rigidity—so we examine them carefully.'\n"
+        "BAD: 'This text focuses on trauma and talks about abdominal tenderness.'\n"
+        "If the answer is not in the context, say: \"Not found in context.\" Answer in 2–4 short sentences. Use \"you\" and a warm tone. No bullet points unless they ask for a list. Do NOT repeat the ABCDE list unless they ask for ABCDE.\n"
+    )
+    user_content = f"Question: {question}\n\nContext:\n{context_text}"
 
     try:
-        if USE_REMOTE_LLM:
+        if _use_claude(model):
+            answer = call_claude(system=system_prompt, user_content=user_content, max_tokens=1024)
+        elif USE_REMOTE_LLM:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
             answer = call_remote_chat(messages, temperature=0.1, max_tokens=400)
         else:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
             answer = call_local_ollama(messages)
     except Exception as e:
-        # Don't expose raw errors (e.g. "Read timed out", connection refused) to the user
         import logging
         logging.warning("RAG LLM call failed: %s", e)
+        # Still return previews so the UI can show "references" even when the LLM step failed
         return (
             "I couldn't look that up in my references right now. Please try again in a moment.",
             previews,
@@ -374,7 +437,8 @@ def chat_completions(req: OpenAIChatRequest):
 
     # Use only the current question for retrieval so we get PDF chunks about the topic, not the conversation
     question_for_rag = extract_question_for_rag(full_prompt)
-    answer, previews = _rag_answer(question_for_rag, top_k=5)
+    requested_model = (req.model or "").strip() or None
+    answer, previews = _rag_answer(question_for_rag, top_k=5, model=requested_model)
 
     return {
         "id": "rag-chat-" + str(uuid.uuid4()),

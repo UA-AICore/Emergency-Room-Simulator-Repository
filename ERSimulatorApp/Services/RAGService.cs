@@ -16,6 +16,7 @@ namespace ERSimulatorApp.Services
         private readonly string _ragBaseUrl;
         private readonly string _apiKey;
         private readonly string _model;
+        private readonly string? _claudeModel;
         private readonly int _topK;
         private readonly string? _ollamaEndpoint;
         private readonly string? _ollamaModel;
@@ -30,6 +31,7 @@ namespace ERSimulatorApp.Services
             _ragBaseUrl = configuration["RAG:BaseUrl"] ?? "https://aicore-llmserver-healthcare.tra220030.projects.jetstream-cloud.org/v1/chat/completions";
             _apiKey = configuration["RAG:ApiKey"] ?? string.Empty;
             _model = configuration["RAG:Model"] ?? "meta-llama/Llama-3.2-1B-instruct";
+            _claudeModel = configuration["RAG:ClaudeModel"]?.Trim();
             _topK = configuration.GetValue<int?>("RAG:TopK") ?? 5;
             _ollamaEndpoint = configuration["Ollama:Endpoint"]?.Trim();
             _ollamaModel = configuration["Ollama:Model"]?.Trim();
@@ -39,8 +41,9 @@ namespace ERSimulatorApp.Services
 
         private const string FallbackMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
 
-        public async Task<LLMResponse> GetResponseAsync(string prompt)
+        public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null)
         {
+            var effectiveModel = modelOverride ?? _model;
             // Use local Ollama as primary LLM when configured (no RAG HTTP server or OpenAI needed)
             if (_useLocalOllama && !string.IsNullOrEmpty(_ollamaEndpoint) && !string.IsNullOrEmpty(_ollamaModel))
             {
@@ -66,10 +69,10 @@ namespace ERSimulatorApp.Services
 
             try
             {
-                // OpenAI-compatible chat completions request format
+                // OpenAI-compatible chat completions request format (model tells RAG backend: ollama vs claude)
                 var ragRequest = new
                 {
-                    model = _model,
+                    model = effectiveModel,
                     messages = new[]
                     {
                         new { role = "user", content = prompt }

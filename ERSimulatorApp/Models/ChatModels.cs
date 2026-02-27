@@ -6,6 +6,8 @@ namespace ERSimulatorApp.Models
     {
         public string Message { get; set; } = string.Empty;
         public string SessionId { get; set; } = string.Empty;
+        /// <summary>When true, use Claude (RAG:ClaudeModel) instead of local Ollama/gemma for the answer.</summary>
+        public bool UseClaude { get; set; }
     }
 
     public class ChatResponse
