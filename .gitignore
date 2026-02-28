@@ -104,3 +104,4 @@ index/
 # ===== ALLOW DATA FOLDER (IMPORTANT) =====
 # We removed "data/" so rag_backend/data/ will be uploaded
 
+TRUST-CERT-FOR-DEMO.md
