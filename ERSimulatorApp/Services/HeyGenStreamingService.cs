@@ -141,12 +141,13 @@ namespace ERSimulatorApp.Services
                 using var jsonDoc = JsonDocument.Parse(responseContent);
                 var root = jsonDoc.RootElement;
 
-                // Check for error code
+                // Check for error code (100 = success; e.g. -202 = streaming/session error from HeyGen)
                 if (root.TryGetProperty("code", out var codeElement) && codeElement.GetInt32() != 100)
                 {
+                    var code = codeElement.GetInt32();
                     var message = root.TryGetProperty("message", out var msgElement) ? msgElement.GetString() : "Unknown error";
-                    _logger.LogError("HeyGen API returned error code {Code}: {Message}", codeElement.GetInt32(), message);
-                    throw new InvalidOperationException($"HeyGen API error: {message}");
+                    _logger.LogError("HeyGen API returned error code {Code}: {Message}", code, message);
+                    throw new InvalidOperationException($"HeyGen error (code {code}): {message}. Try starting the session again.");
                 }
 
                 // Parse data section

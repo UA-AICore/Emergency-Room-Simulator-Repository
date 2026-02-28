@@ -70,11 +70,18 @@ builder.Services.AddHttpClient<IHeyGenVideoProxyService, HeyGenVideoProxyService
     client.Timeout = TimeSpan.FromSeconds(heyGenTimeout);
 });
 
-// Register Whisper ASR service
+// Register Whisper ASR service (chat and patient avatar)
 var whisperTimeout = builder.Configuration.GetValue<int?>("Whisper:TimeoutSeconds") ?? 60;
 builder.Services.AddHttpClient<IWhisperService, WhisperService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(whisperTimeout);
+});
+
+// ElevenLabs speech-to-text for Dr. Dexter avatar voice input
+var elevenLabsTimeout = builder.Configuration.GetValue<int?>("ElevenLabs:TimeoutSeconds") ?? 60;
+builder.Services.AddHttpClient<IElevenLabsSpeechToTextService, ElevenLabsSpeechToTextService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(elevenLabsTimeout);
 });
 
 // Register Patient Streaming service (for patient avatar)
@@ -144,7 +151,20 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+// Only redirect HTTP→HTTPS when we're actually listening on HTTPS (ServerHttps profile). Avoids "Failed to determine the https port" when running HTTP-only (Server profile).
+var urls = builder.Configuration["ASPNETCORE_URLS"] ?? "";
+if (urls.Contains("https:", StringComparison.OrdinalIgnoreCase))
+{
+    var kestrelCertPath = builder.Configuration["Kestrel:Certificates:Default:Path"];
+    if (!string.IsNullOrWhiteSpace(kestrelCertPath))
+    {
+        var path = kestrelCertPath.Trim();
+        if (!Path.IsPathRooted(path))
+            path = Path.Combine(builder.Environment.ContentRootPath, path);
+        if (File.Exists(path))
+            app.UseHttpsRedirection();
+    }
+}
 app.UseStaticFiles();
 
 app.UseRouting();

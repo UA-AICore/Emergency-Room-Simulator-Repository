@@ -72,7 +72,9 @@ rag_backend/.env.secrets
 secrets.json
 credentials.json
 *.pem
+*.pfx
 **/keys/
+ERSimulatorApp/certs/
 **/Keys/
 
 # ===== Python artifacts =====

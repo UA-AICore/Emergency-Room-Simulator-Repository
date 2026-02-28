@@ -17,7 +17,7 @@ namespace ERSimulatorApp.Controllers
     {
         private readonly IHeyGenStreamingService _heyGenService;
         private readonly ILLMService _llmService;
-        private readonly IWhisperService _whisperService;
+        private readonly IElevenLabsSpeechToTextService _speechToTextService;
         private readonly ILogger<AvatarStreamingController> _logger;
         private readonly IConfiguration _configuration;
         private readonly string _sourceDocumentsPath;
@@ -26,14 +26,14 @@ namespace ERSimulatorApp.Controllers
         public AvatarStreamingController(
             IHeyGenStreamingService heyGenService,
             ILLMService llmService,
-            IWhisperService whisperService,
+            IElevenLabsSpeechToTextService speechToTextService,
             ILogger<AvatarStreamingController> logger,
             IConfiguration configuration,
             IWebHostEnvironment environment)
         {
             _heyGenService = heyGenService;
             _llmService = llmService;
-            _whisperService = whisperService;
+            _speechToTextService = speechToTextService;
             _logger = logger;
             _configuration = configuration;
 
@@ -134,7 +134,7 @@ namespace ERSimulatorApp.Controllers
 
 
         /// <summary>
-        /// Process audio input: Whisper ASR → RAG → HeyGen
+        /// Process audio input: ElevenLabs STT → RAG → HeyGen
         /// Complete voice conversation flow
         /// </summary>
         [HttpPost("audio")]
@@ -173,7 +173,7 @@ namespace ERSimulatorApp.Controllers
                     return BadRequest(new { error = "Audio file is empty" });
                 }
 
-                // Validate audio file size (minimum 1KB, maximum 25MB - Whisper API limit)
+                // Validate audio file size (minimum 1KB, maximum 25MB)
                 if (audioFile.Length < 1024)
                 {
                     _logger.LogWarning("ProcessAudio: Audio file too small: {Size} bytes", audioFile.Length);
@@ -199,8 +199,8 @@ namespace ERSimulatorApp.Controllers
                     });
                 }
 
-                // Step 1: Transcribe audio using Whisper ASR
-                _logger.LogInformation("Step 1: Transcribing audio with Whisper... File: {FileName}, Size: {Size} bytes, ContentType: {ContentType}",
+                // Step 1: Transcribe audio using ElevenLabs speech-to-text
+                _logger.LogInformation("Step 1: Transcribing audio with ElevenLabs STT... File: {FileName}, Size: {Size} bytes, ContentType: {ContentType}",
                     audioFile.FileName, audioFile.Length, audioFile.ContentType);
                 
                 // Ensure we have a valid file name with extension
@@ -228,57 +228,57 @@ namespace ERSimulatorApp.Controllers
                         });
                     }
                     
-                    _logger.LogInformation("Step 1b: Audio stream opened successfully, calling WhisperService.TranscribeAudioAsync with fileName: {FileName}...", fileName);
-                    transcript = await _whisperService.TranscribeAudioAsync(audioStream, fileName);
+                    _logger.LogInformation("Step 1b: Audio stream opened successfully, calling ElevenLabs STT with fileName: {FileName}...", fileName);
+                    transcript = await _speechToTextService.TranscribeAudioAsync(audioStream, fileName);
                     
                     if (string.IsNullOrWhiteSpace(transcript))
                     {
-                        _logger.LogWarning("Whisper returned empty transcript - audio may be too short, unclear, or in unsupported format");
+                        _logger.LogWarning("ElevenLabs STT returned empty transcript - audio may be too short, unclear, or in unsupported format");
                         return BadRequest(new { 
                             error = "Could not transcribe audio. The audio may be too short, unclear, or in an unsupported format. Please try recording again.",
-                            details = "Whisper API returned empty transcript"
+                            details = "ElevenLabs speech-to-text returned empty transcript"
                         });
                     }
 
                     _logger.LogInformation("Step 1c: Audio transcribed successfully. Transcript length: {Length} chars, Preview: {Preview}",
                         transcript.Length, transcript.Substring(0, Math.Min(100, transcript.Length)));
                 }
-                catch (InvalidOperationException ex) when (ex.Message.Contains("API key") || ex.Message.Contains("invalid") || ex.Message.Contains("expired"))
+                catch (InvalidOperationException ex) when (ex.Message.Contains("API key") || ex.Message.Contains("not configured"))
                 {
-                    _logger.LogError(ex, "Whisper API key error: {Message}", ex.Message);
+                    _logger.LogError(ex, "ElevenLabs API key error: {Message}", ex.Message);
                     return StatusCode(500, new
                     {
                         success = false,
-                        error = "OpenAI API key error. Please check your API key configuration.",
+                        error = "ElevenLabs API key not configured. Set ElevenLabs:ApiKey or ELEVENLABS_API_KEY for Dr. Dexter voice input.",
                         message = ex.Message,
-                        details = "The Whisper API key may be invalid, expired, or not have access to the Whisper API."
+                        details = "Voice input for the avatar requires an ElevenLabs API key."
                     });
                 }
                 catch (UnauthorizedAccessException ex)
                 {
-                    _logger.LogError(ex, "Whisper API authentication failed: {Message}", ex.Message);
+                    _logger.LogError(ex, "ElevenLabs API authentication failed: {Message}", ex.Message);
                     return StatusCode(401, new
                     {
                         success = false,
-                        error = "OpenAI API authentication failed. Please verify your API key.",
+                        error = "ElevenLabs API authentication failed. Please verify your API key.",
                         message = ex.Message,
-                        details = "The API key may not have access to the Whisper API or may be incorrect."
+                        details = "The xi-api-key may be invalid or not have speech-to-text access."
                     });
                 }
                 catch (HttpRequestException ex)
                 {
-                    _logger.LogError(ex, "Whisper API HTTP error: {Message}", ex.Message);
+                    _logger.LogError(ex, "ElevenLabs STT HTTP error: {Message}", ex.Message);
                     return StatusCode(500, new
                     {
                         success = false,
-                        error = "Failed to connect to Whisper API. Please check your internet connection and try again.",
+                        error = "Failed to connect to ElevenLabs speech-to-text. Check your connection and API key.",
                         message = ex.Message,
-                        details = "Network error or Whisper API service issue."
+                        details = "Network error or ElevenLabs service issue."
                     });
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error transcribing audio with Whisper: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
+                    _logger.LogError(ex, "Error transcribing audio with ElevenLabs STT: {Message}\n{StackTrace}", ex.Message, ex.StackTrace);
                     return StatusCode(500, new
                     {
                         success = false,

@@ -218,12 +218,12 @@
 
     // ============================================
     // Browser Speech Recognition (Web Speech API) - DISABLED
-    // Using Whisper instead via MediaRecorder + backend API
+    // Using ElevenLabs speech-to-text via MediaRecorder + backend API
     // ============================================
-    // Web Speech API is disabled - we use Whisper for better accuracy
+    // Web Speech API is disabled - we use ElevenLabs for speech-to-text
     let recognition = null; // Always null - Web Speech API not used
     
-    console.log('[RECORD] Using Whisper for speech-to-text (Web Speech API disabled)');
+    console.log('[RECORD] Using ElevenLabs for speech-to-text (Web Speech API disabled)');
 
     // ============================================
     // DOM Elements
@@ -866,14 +866,21 @@
 
     async function startRecording() {
         try {
-            console.log('[RECORD] ===== USING WHISPER FOR SPEECH-TO-TEXT =====');
+            console.log('[RECORD] ===== USING ELEVENLABS FOR SPEECH-TO-TEXT =====');
+            // Microphone API is only available in secure contexts (HTTPS or localhost)
+            if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
+                const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+                throw new Error(isSecure
+                    ? 'Microphone API is not available in this browser.'
+                    : 'Voice input requires HTTPS. Open this app at https://149.165.168.99:8443 instead (run the app with ServerHttps profile, then accept the browser security warning once).');
+            }
             // Check if MediaRecorder is supported
             if (!window.MediaRecorder) {
                 throw new Error('MediaRecorder API is not supported in this browser. Please use Chrome, Edge, or Firefox.');
             }
 
             // Request microphone access
-            console.log('[RECORD] Requesting microphone access for Whisper transcription...');
+            console.log('[RECORD] Requesting microphone access for speech-to-text...');
             audioStream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
                     channelCount: 1,
@@ -1031,8 +1038,8 @@
         }
 
         try {
-            showLoading('Processing audio with Whisper...');
-            updateStatus('Sending audio to Whisper...', 'warning');
+            showLoading('Processing audio with ElevenLabs...');
+            updateStatus('Sending audio for transcription...', 'warning');
             
             // Determine file extension based on blob type
             let fileExtension = 'webm';
@@ -1155,8 +1162,8 @@
     }
 
     function toggleRecording() {
-        // Use MediaRecorder + Whisper pipeline (preferred method)
-        console.log('[RECORD] Toggling Whisper audio recording...');
+        // Use MediaRecorder + ElevenLabs speech-to-text pipeline (preferred method)
+        console.log('[RECORD] Toggling voice recording (ElevenLabs)...');
         if (!isRecording) {
             startRecording();
         } else {
