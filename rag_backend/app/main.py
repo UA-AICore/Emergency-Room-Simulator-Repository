@@ -245,6 +245,22 @@ def _use_claude(model: Optional[str]) -> bool:
     return "claude" in model.lower()
 
 
+def _is_not_found_in_context(answer: str) -> bool:
+    """True if the RAG answer indicates the topic was not in the indexed materials."""
+    if not answer or len(answer.strip()) < 10:
+        return False
+    a = answer.strip().lower()
+    if "not found in context" in a:
+        return True
+    if "don't cover" in a or "doesn't cover" in a or "do not cover" in a:
+        return True
+    if "materials i have" in a and ("don't cover" in a or "focus on" in a and "don't" in a):
+        return True
+    if "no relevant context" in a or "no relevant information" in a:
+        return True
+    return False
+
+
 def _rag_answer(question: str, top_k: int = 4, model: Optional[str] = None) -> tuple[str, list[str]]:
     """Run RAG: query Chroma, build context, call LLM. Returns (answer, context_preview).
     model: optional request model; if it contains 'claude', use Claude API; else Ollama or remote."""
@@ -297,6 +313,23 @@ def _rag_answer(question: str, top_k: int = 4, model: Optional[str] = None) -> t
             "I couldn't look that up in my references right now. Please try again in a moment.",
             previews,
         )
+
+    # Claude mode: if the answer says the topic isn't in the RAG materials, fall back to general Claude for a concise response
+    if _use_claude(model) and _is_not_found_in_context(answer):
+        try:
+            fallback_system = (
+                "You are an ER physician teaching a student. The student asked a medical question that is not in your trauma-focused reference materials. "
+                "Give a concise, helpful answer from general medical knowledge in 2–4 short sentences. Use a warm, teaching tone. "
+                "Do not say the topic was not in your materials—just answer the question directly."
+            )
+            answer = call_claude(system=fallback_system, user_content=question, max_tokens=512)
+            # Return empty previews so the UI doesn't show RAG references for this general answer
+            return answer, []
+        except Exception as e:
+            import logging
+            logging.warning("Claude fallback (general knowledge) failed: %s", e)
+            # Keep the original "not found" answer
+            return answer, previews
 
     return answer, previews
 
