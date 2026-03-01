@@ -18,7 +18,8 @@ namespace ERSimulatorApp.Controllers
         private readonly IPatientPersonalityService _patientPersonalityService;
         private readonly IWhisperService _whisperService;
         private readonly ILogger<PatientStreamingController> _logger;
-        
+        private readonly IConfiguration _configuration;
+
         // In-memory conversation state tracking (keyed by session ID)
         private static readonly ConcurrentDictionary<string, PatientConversationState> _conversationStates = new();
 
@@ -26,13 +27,17 @@ namespace ERSimulatorApp.Controllers
             IPatientStreamingService patientStreamingService,
             IPatientPersonalityService patientPersonalityService,
             IWhisperService whisperService,
-            ILogger<PatientStreamingController> logger)
+            ILogger<PatientStreamingController> logger,
+            IConfiguration configuration)
         {
             _patientStreamingService = patientStreamingService;
             _patientPersonalityService = patientPersonalityService;
             _whisperService = whisperService;
             _logger = logger;
+            _configuration = configuration;
         }
+
+        private bool PatientSupportEnabled => _configuration.GetValue<bool>("PatientSupport:Enabled", false);
 
         /// <summary>
         /// Create a new patient streaming session
@@ -41,6 +46,10 @@ namespace ERSimulatorApp.Controllers
         [HttpPost("session/create")]
         public async Task<IActionResult> CreateSession()
         {
+            if (!PatientSupportEnabled)
+            {
+                return NotFound(new { error = "Patient support is not available." });
+            }
             try
             {
                 _logger.LogInformation("Creating new patient HeyGen streaming session");
@@ -87,6 +96,10 @@ namespace ERSimulatorApp.Controllers
         [HttpPost("audio")]
         public async Task<IActionResult> ProcessAudio([FromForm] string conversationId, [FromForm] string? streamingToken)
         {
+            if (!PatientSupportEnabled)
+            {
+                return NotFound(new { error = "Patient support is not available." });
+            }
             try
             {
                 _logger.LogInformation("ProcessAudio called for patient - Files.Count: {FileCount}", Request.Form.Files.Count);
@@ -254,6 +267,10 @@ namespace ERSimulatorApp.Controllers
         [HttpPost("task")]
         public async Task<IActionResult> SendTask([FromBody] AvatarMessageRequest request)
         {
+            if (!PatientSupportEnabled)
+            {
+                return NotFound(new { error = "Patient support is not available." });
+            }
             try
             {
                 if (string.IsNullOrWhiteSpace(request.Message))
@@ -374,6 +391,10 @@ namespace ERSimulatorApp.Controllers
         [HttpPost("session/stop")]
         public async Task<IActionResult> StopSession([FromBody] AvatarSessionRequest request)
         {
+            if (!PatientSupportEnabled)
+            {
+                return NotFound(new { error = "Patient support is not available." });
+            }
             try
             {
                 if (string.IsNullOrWhiteSpace(request.SessionId))

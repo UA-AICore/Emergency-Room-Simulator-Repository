@@ -197,7 +197,7 @@ namespace ERSimulatorApp.Services
 Medical info (use this, stay accurate):
 {medicalResponse}
 
-Reply as Dr. Dexter in 2–3 short sentences. Sound like a real person talking to a student—warm, natural, use ""you."" No lists, no bullet points, no textbook tone. Teach the key point from the info above and maybe one practical takeaway or follow-up question.";
+Reply as Dr. Dexter in 2–3 short sentences. Reply in the SAME language the student used (e.g. if they asked in Spanish, reply in Spanish; if in English, reply in English). Sound like a real person talking to a student—warm, natural, use ""you."" No lists, no bullet points, no textbook tone. Teach the key point from the info above and maybe one practical takeaway or follow-up question.";
         }
 
         /// <summary>

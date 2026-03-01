@@ -231,6 +231,20 @@ def extract_question_for_rag(full_prompt: str) -> str:
     return full_prompt.strip()
 
 
+def _language_hint(question: str) -> str:
+    """If the question looks like Spanish, return an instruction so the model responds in Spanish."""
+    q = (question or "").strip().lower()
+    if not q:
+        return ""
+    # Spanish indicators: inverted ¿, ñ, accented vowels, or common Spanish words
+    if "¿" in question or "ñ" in q or any(c in q for c in "áéíóúü"):
+        return "The student's question is in Spanish. You MUST respond entirely in Spanish.\n\n"
+    spanish_starters = ("qué ", "como ", "cómo ", "cuál ", "cuáles ", "por qué ", "cuando ", "cuándo ", "donde ", "dónde ", "cuanto ", "cuánto ", "quien ", "quién ", "debo ", "puedo ", "debería ", "hay ", "tiene ", "tienen ", "es ", "son ", "en caso ", "qué debo ", "cómo puedo ")
+    if any(q.startswith(s) for s in spanish_starters):
+        return "The student's question is in Spanish. You MUST respond entirely in Spanish.\n\n"
+    return ""
+
+
 class OpenAIChatRequest(BaseModel):
     model: Optional[str] = None
     messages: List[ChatMessage]
@@ -283,12 +297,14 @@ def _rag_answer(question: str, top_k: int = 4, model: Optional[str] = None) -> t
     context_text = "\n".join(previews)
     system_prompt = (
         "You are an ER doctor teaching a student. Use ONLY the context below to answer. You are speaking TO the student—give them the answer directly, as if you are explaining it yourself.\n"
+        "CRITICAL: You MUST respond in the EXACT same language as the student's question. If the question is in Spanish, your entire answer must be in Spanish. If in English, answer in English. Do not default to English when the question is in another language.\n"
         "FORBIDDEN: Do not refer to the context as text or a document. Never say: 'this text focuses on', 'the document says', 'it talks about', 'the context mentions'. Never describe what the source says; instead, teach that information as your own.\n"
         "GOOD: 'With blunt abdominal trauma, patients often have tenderness, guarding, and rigidity—so we examine them carefully.'\n"
         "BAD: 'This text focuses on trauma and talks about abdominal tenderness.'\n"
         "If the answer is not in the context, say: \"Not found in context.\" Answer in 2–4 short sentences. Use \"you\" and a warm tone. No bullet points unless they ask for a list. Do NOT repeat the ABCDE list unless they ask for ABCDE.\n"
     )
-    user_content = f"Question: {question}\n\nContext:\n{context_text}"
+    lang_hint = _language_hint(question)
+    user_content = f"{lang_hint}Question: {question}\n\nContext:\n{context_text}"
 
     try:
         if _use_claude(model):
@@ -320,9 +336,11 @@ def _rag_answer(question: str, top_k: int = 4, model: Optional[str] = None) -> t
             fallback_system = (
                 "You are an ER physician teaching a student. The student asked a medical question that is not in your trauma-focused reference materials. "
                 "Give a concise, helpful answer from general medical knowledge in 2–4 short sentences. Use a warm, teaching tone. "
+                "CRITICAL: You MUST respond in the EXACT same language as the student's question. If they asked in Spanish, answer entirely in Spanish. If in English, in English. Do not default to English.\n"
                 "Do not say the topic was not in your materials—just answer the question directly."
             )
-            answer = call_claude(system=fallback_system, user_content=question, max_tokens=512)
+            fallback_user = f"{_language_hint(question)}Question: {question}"
+            answer = call_claude(system=fallback_system, user_content=fallback_user, max_tokens=512)
             # Return empty previews so the UI doesn't show RAG references for this general answer
             return answer, []
         except Exception as e:

@@ -80,7 +80,7 @@ namespace ERSimulatorApp.Controllers
             var lines = recent.Select(m => m.Role == "user"
                 ? "Student: " + m.Content
                 : "Dr. Dexter: " + m.Content);
-            return "Recent conversation:\n" + string.Join("\n", lines) + "\n\nStudent's current question: " + currentQuestion + "\n\nAnswer ONLY the student's CURRENT question above. Respond in 2–3 short sentences. Sound natural and conversational, like a supportive teacher talking to a student—not like a textbook or a formal report.";
+            return "Recent conversation:\n" + string.Join("\n", lines) + "\n\nStudent's current question: " + currentQuestion + "\n\nAnswer ONLY the student's CURRENT question above. You MUST respond in the SAME language as the student's current question (e.g. if they asked in Spanish, answer entirely in Spanish; if in English, in English). Respond in 2–3 short sentences. Sound natural and conversational, like a supportive teacher talking to a student—not like a textbook or a formal report.";
         }
 
         /// <summary>
