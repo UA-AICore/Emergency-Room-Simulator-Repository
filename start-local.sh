@@ -17,6 +17,14 @@ cleanup() {
   exit 0
 }
 trap cleanup SIGINT SIGTERM
+if [ ! -d rag_backend/.venv ] && [ ! -d rag_backend/venv ]; then
+  echo "Creating Python venv in rag_backend/.venv and installing dependencies..."
+  python3 -m venv rag_backend/.venv
+  source rag_backend/.venv/bin/activate
+  pip install -q -r rag_backend/requirements.txt
+  echo "Venv ready."
+  echo ""
+fi
 echo "Starting RAG backend on port 8010 (localhost only)..."
 source rag_backend/.venv/bin/activate 2>/dev/null || source rag_backend/venv/bin/activate
 (cd rag_backend && python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8010) &

@@ -39,17 +39,7 @@ cd Emergency-Room-Simulator-Repository
 
 ### 2a. RAG backend (Python)
 
-Create a virtual environment and install dependencies:
-
-```bash
-cd rag_backend
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cd ..
-```
-
-(On Windows, use `python -m venv .venv` and `.venv\Scripts\activate`.)
+**You don’t need to create the venv yourself.** The first time you run `./start-local.sh`, it will create `rag_backend/.venv` and install dependencies automatically. Just ensure Python 3.10+ is installed (see Prerequisites).
 
 ### 2b. Local app settings (so the app talks to local RAG)
 
@@ -98,9 +88,10 @@ chmod +x start-local.sh
 
 What this does:
 
-1. Starts the RAG backend at **http://127.0.0.1:8010** (localhost only).
-2. Runs ingest (if data is present).
-3. Starts the .NET app at **http://localhost:5121**.
+1. **First run only:** If there’s no `rag_backend/.venv` yet, creates it and runs `pip install -r rag_backend/requirements.txt`.
+2. Starts the RAG backend at **http://127.0.0.1:8010** (localhost only).
+3. Runs ingest (if data is present).
+4. Starts the .NET app at **http://localhost:5121**.
 
 To stop everything, press **Ctrl+C** in the same terminal.
 
