@@ -1,3 +1,7 @@
+# ===== DO NOT COMMIT: secrets, keys, env, appsettings, certs, local config =====
+# Files below are ignored so they are never pushed to GitHub.
+# Use *Example.json files as templates; keep real keys in ignored appsettings / .env.
+
 # ===== Visual Studio / Rider / .NET Build Artifacts =====
 [Dd]ebug/
 [Dd]ebugPublic/
