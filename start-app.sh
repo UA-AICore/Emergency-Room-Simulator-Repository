@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# Start RAG backend, run ingest, then start the .NET app in one terminal.
-# Usage: ./start-app.sh [Server|ServerHttps]
-#   Server     = HTTP only (http://YOUR_IP:8081), no voice input
-#   ServerHttps = HTTPS (https://YOUR_IP:8443), voice input works (default)
-# The same launch command is used whether you use a self-signed or Let's Encrypt cert; only appsettings cert paths differ.
+# Start RAG backend, run ingest, then start the .NET app on localhost.
+# Usage: ./start-app.sh
+#   → http://localhost:5121 (use appsettings.Development.json with RAG BaseUrl http://127.0.0.1:8010)
 set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
-PROFILE="${1:-ServerHttps}"
 RAG_PID=""
 cleanup() {
   echo ""
@@ -19,9 +16,17 @@ cleanup() {
   exit 0
 }
 trap cleanup SIGINT SIGTERM
-echo "Starting RAG backend on port 8010..."
+if [ ! -d rag_backend/.venv ] && [ ! -d rag_backend/venv ]; then
+  echo "Creating Python venv in rag_backend/.venv and installing dependencies..."
+  python3 -m venv rag_backend/.venv
+  source rag_backend/.venv/bin/activate
+  pip install -q -r rag_backend/requirements.txt
+  echo "Venv ready."
+  echo ""
+fi
+echo "Starting RAG backend on port 8010 (localhost only)..."
 source rag_backend/.venv/bin/activate 2>/dev/null || source rag_backend/venv/bin/activate
-(cd rag_backend && python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8010) &
+(cd rag_backend && python3 -m uvicorn app.main:app --host 127.0.0.1 --port 8010) &
 RAG_PID=$!
 echo "RAG PID: $RAG_PID"
 echo "Waiting for RAG to be ready..."
@@ -35,15 +40,9 @@ done
 echo "Running ingest (data/trauma_pdfs)..."
 curl -s -X POST http://127.0.0.1:8010/ingest -H "Content-Type: application/json" -d '{"folder": "data/trauma_pdfs"}' || true
 echo ""
-if [ "$PROFILE" = "ServerHttps" ]; then
-  echo "Starting .NET app as HTTPS site (profile: ServerHttps)..."
-  echo "  → https://YOUR_IP:8443 (voice input works)"
-  echo "  → http://YOUR_IP:8081 (redirects to HTTPS if cert is configured)"
-else
-  echo "Starting .NET app (profile: $PROFILE)..."
-  echo "  → http://YOUR_IP:8081 (HTTP only, no voice input)"
-fi
+echo "Starting .NET app (profile: http, localhost only)..."
+echo "  → http://localhost:5121"
 cd ERSimulatorApp
 dotnet build -nologo -v q
-dotnet run --launch-profile "$PROFILE"
+dotnet run --launch-profile http
 cleanup

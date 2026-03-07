@@ -27,7 +27,7 @@ namespace ERSimulatorApp.Services
         {
             _httpClient = httpClient;
             _logger = logger;
-            _proxyBaseUrl = configuration["HeyGen:ProxyBaseUrl"] ?? "http://149.165.154.35:8095";
+            _proxyBaseUrl = configuration["HeyGen:ProxyBaseUrl"] ?? "http://127.0.0.1:8095";
 
             // Set base address to proxy
             _httpClient.BaseAddress = new Uri(_proxyBaseUrl);

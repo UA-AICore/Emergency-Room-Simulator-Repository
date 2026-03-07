@@ -28,7 +28,7 @@ namespace ERSimulatorApp.Services
             _httpClient = httpClient;
             _logger = logger;
             _configuration = configuration;
-            _ragBaseUrl = configuration["RAG:BaseUrl"] ?? "https://aicore-llmserver-healthcare.tra220030.projects.jetstream-cloud.org/v1/chat/completions";
+            _ragBaseUrl = configuration["RAG:BaseUrl"] ?? "http://127.0.0.1:8010/v1/chat/completions";
             _apiKey = configuration["RAG:ApiKey"] ?? string.Empty;
             _model = configuration["RAG:Model"] ?? "meta-llama/Llama-3.2-1B-instruct";
             _claudeModel = configuration["RAG:ClaudeModel"]?.Trim();

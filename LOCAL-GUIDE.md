@@ -4,6 +4,8 @@ Use this guide to run the CoDIRA / ER Simulator app **on your machine only** (lo
 
 **Important:** Do not commit `appsettings.json` or `appsettings.Development.json` to GitHub—they can contain API keys. They are listed in `.gitignore`. Use the `*Example.json` files as templates.
 
+**You won’t have access to API keys when you clone the repo**—those files are not in the repository. Once you’ve got the repo on your local machine and are ready to configure it, ping me and I’ll get you the keys you need.
+
 ---
 
 ## Prerequisites
@@ -39,7 +41,7 @@ cd Emergency-Room-Simulator-Repository
 
 ### 2a. RAG backend (Python)
 
-**You don’t need to create the venv yourself.** The first time you run `./start-local.sh`, it will create `rag_backend/.venv` and install dependencies automatically. Just ensure Python 3.10+ is installed (see Prerequisites).
+**You don’t need to create the venv yourself.** The first time you run `./start-app.sh`, it will create `rag_backend/.venv` and install dependencies automatically. This will take a long time, just be patient. Just ensure Python 3.10+ is installed (see Prerequisites).
 
 ### 2b. Local app settings (so the app talks to local RAG)
 
@@ -67,23 +69,23 @@ The app must point to the RAG backend on **localhost**. In Development it uses `
    }
    ```
 
-   Add or change other keys (e.g. HeyGen, ElevenLabs) only if you need them for your demo. The app can run with just RAG pointing at localhost.
+   **HeyGen (avatar) is optional.** If you omit HeyGen keys, the app still starts; clicking **Start Session** will show a message that HeyGen is not configured. To use the full avatar locally, add your HeyGen API key and Avatar ID (ping me for keys). Other keys (e.g. ElevenLabs for voice input) only if you need them.
 
 **Do not commit** `appsettings.Development.json`; it is in `.gitignore`.
 
 ### 2c. (Optional) PDF data for RAG
 
-If the repo has a `rag_backend/data/trauma_pdfs` folder (or similar), the startup script will run ingest on it. If you don’t have data yet, ingest may log a warning; you can add PDFs later and run ingest again.
+**PDF ingestion is handled by `./start-app.sh`.** Each time you run the script, it runs ingest on `rag_backend/data/trauma_pdfs` automatically (after RAG is up). If you don’t have data yet, ingest may log a warning; you can add PDFs later and start the script again to re-run ingest.
 
 ---
 
 ## Step 3: Start the app on localhost
 
-From the **repository root** (where `start-local.sh` lives):
+From the **repository root** (where `start-app.sh` lives):
 
 ```bash
-chmod +x start-local.sh
-./start-local.sh
+chmod +x start-app.sh
+./start-app.sh
 ```
 
 What this does:
@@ -113,7 +115,7 @@ You should see the CoDIRA app. Use **Start Session** on the Avatar page to begin
 |-------------------|----------------------------------------|
 | App (browser)     | http://localhost:5121                 |
 | RAG backend       | http://127.0.0.1:8010 (used by app)   |
-| Start everything  | `./start-local.sh` (from repo root)   |
+| Start everything  | `./start-app.sh` (from repo root)   |
 | Stop              | Ctrl+C in the terminal                |
 | Local config      | `ERSimulatorApp/appsettings.Development.json` (do not commit) |
 
@@ -124,10 +126,10 @@ You should see the CoDIRA app. Use **Start Session** on the Avatar page to begin
 - **“Connection refused” or RAG errors**  
   Make sure `appsettings.Development.json` has  
   `"BaseUrl": "http://127.0.0.1:8010/v1/chat/completions"`  
-  and that you ran `./start-local.sh` from the repo root (so RAG starts first).
+  and that you ran `./start-app.sh` from the repo root (so RAG starts first).
 
 - **Port already in use**  
-  If 5121 or 8010 is in use, stop the other process or change the port in `ERSimulatorApp/Properties/launchSettings.json` (profile `http`) and in the RAG command in `start-local.sh`.
+  If 5121 or 8010 is in use, stop the other process or change the port in `ERSimulatorApp/Properties/launchSettings.json` (profile `http`) and in the RAG command in `start-app.sh`.
 
 - **Voice / microphone**  
   On plain HTTP localhost, some browsers may restrict microphone access. If you need voice for the demo, consider using the server (HTTPS) flow described in the main setup/demo docs instead.
@@ -150,4 +152,4 @@ These are ignored by Git (see `.gitignore`); **do not add them to the repo**:
 - `ERSimulatorApp/certs/`
 - Any file with API keys or passwords
 
-Use the `*Example.json` and `.env.example` files as templates and keep your real config only on your machine.
+Use the `*Example.json` files (in `ERSimulatorApp/`) and `rag_backend/.env.example` as templates and keep your real config only on your machine.

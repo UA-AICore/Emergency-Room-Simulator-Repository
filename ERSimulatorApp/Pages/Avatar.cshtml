@@ -872,7 +872,7 @@
                 const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
                 throw new Error(isSecure
                     ? 'Microphone API is not available in this browser.'
-                    : 'Voice input requires HTTPS. Open this app at https://149.165.168.99:8443 instead (run the app with ServerHttps profile, then accept the browser security warning once).');
+                    : 'Voice input requires HTTPS. Open this app at https://localhost:8443 or https://127.0.0.1:8443 (run the app with ServerHttps profile, then accept the browser security warning once).');
             }
             // Check if MediaRecorder is supported
             if (!window.MediaRecorder) {
