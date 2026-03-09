@@ -36,7 +36,7 @@
                 </div>
                 
                 <!-- Video Container -->
-                <div class="avatar-video-container position-relative" style="background: #000; min-height: 500px; display: flex; align-items: center; justify-content: center;">
+                <div class="avatar-video-container position-relative">
                     <video id="avatarVideo" autoplay playsinline muted style="width: 100%; max-width: 800px; border: 1px solid #ccc; background:#000;" hidden></video>
                     <audio id="avatarAudio" autoplay volume="1.0"></audio>
                     <div id="placeholder" class="text-center text-white p-5">
@@ -51,7 +51,7 @@
                 </div>
                 
                 <!-- Chat History -->
-                <div class="chat-messages" id="chatHistory" style="height: 200px; overflow-y: auto; background: #f8f9fa; padding: 1rem;">
+                <div class="chat-messages chat-transcript" id="chatHistory">
                     <div class="text-center text-muted py-4">
                         <i class="fas fa-comments fa-2x mb-2"></i>
                         <p class="mb-0">Conversation transcript will appear here</p>
@@ -60,7 +60,7 @@
                 
                 <!-- Input Controls -->
                 <div class="chat-input-container">
-                    <div class="input-group">
+                    <div class="input-group input-group-mobile">
                         <input type="text" id="messageInput" class="form-control" placeholder="Ask your medical question..." maxlength="500" disabled>
                         <button class="btn btn-primary" type="button" id="sendButton" disabled>
                             <i class="fas fa-paper-plane me-2"></i>Send
@@ -353,6 +353,20 @@
     }
 
     // ============================================
+    // Mobile: unlock audio on user gesture so avatar audio plays without tapping video
+    // ============================================
+    function unlockAudioForMobile() {
+        try {
+            var el = document.getElementById('avatarAudio');
+            if (!el) return;
+            var silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+            el.src = silentWav;
+            el.volume = 0;
+            el.play().then(function() { el.src = ''; }).catch(function() { el.src = ''; });
+        } catch (e) { /* ignore */ }
+    }
+
+    // ============================================
     // LiveKit Connection
     // ============================================
     async function connectToLiveKit(url, accessToken) {
@@ -414,13 +428,14 @@
                             } else if (track.kind === LiveKit.Track.Kind.Audio || track.kind === 'audio') {
                                 // Use track.attach() like MarvelCrud - this is the LiveKit recommended way
                                 console.log('[LK] Audio track subscribed, attaching to element');
+                                elements.audio.src = '';
                                 track.attach(elements.audio);
                                 elements.audio.autoplay = true;
                                 elements.audio.muted = false;
                                 elements.audio.volume = 1.0;
                                 audioTrackReceived = true;
                                 
-                                // Try to play audio - browsers may require user interaction
+                                // Play audio (unlock was done on Start Session click so this works on mobile)
                                 const playPromise = elements.audio.play();
                                 if (playPromise !== undefined) {
                                     playPromise
@@ -645,6 +660,7 @@
     // ============================================
     async function startSession() {
         console.log('[SESSION] startSession() called');
+        unlockAudioForMobile();
         try {
             elements.startButton.disabled = true;
             showLoading('Creating session...');

@@ -36,7 +36,7 @@
                 </div>
                 
                 <!-- Video Container -->
-                <div class="avatar-video-container position-relative" style="background: #000; min-height: 500px; display: flex; align-items: center; justify-content: center;">
+                <div class="avatar-video-container position-relative">
                     <video id="avatarVideo" autoplay playsinline muted style="width: 100%; max-width: 800px; border: 1px solid #ccc; background:#000;" hidden></video>
                     <audio id="avatarAudio" autoplay volume="1.0"></audio>
                     <div id="placeholder" class="text-center text-white p-5">
@@ -51,7 +51,7 @@
                 </div>
                 
                 <!-- Chat History -->
-                <div class="chat-messages" id="chatHistory" style="height: 200px; overflow-y: auto; background: #f8f9fa; padding: 1rem;">
+                <div class="chat-messages chat-transcript" id="chatHistory">
                     <div class="text-center text-muted py-4">
                         <i class="fas fa-comments fa-2x mb-2"></i>
                         <p class="mb-0">Conversation transcript will appear here</p>
@@ -60,7 +60,7 @@
                 
                 <!-- Input Controls -->
                 <div class="chat-input-container">
-                    <div class="input-group">
+                    <div class="input-group input-group-mobile">
                         <input type="text" id="messageInput" class="form-control" placeholder="Ask the patient about their symptoms..." maxlength="500" disabled>
                         <button class="btn btn-primary" type="button" id="sendButton" disabled>
                             <i class="fas fa-paper-plane me-2"></i>Send
@@ -196,6 +196,20 @@
     }
 
     // ============================================
+    // Mobile: unlock audio on user gesture so avatar audio plays without tapping video
+    // ============================================
+    function unlockAudioForMobile() {
+        try {
+            var el = document.getElementById('avatarAudio');
+            if (!el) return;
+            var silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+            el.src = silentWav;
+            el.volume = 0;
+            el.play().then(function() { el.src = ''; }).catch(function() { el.src = ''; });
+        } catch (e) { /* ignore */ }
+    }
+
+    // ============================================
     // LiveKit Connection
     // ============================================
     async function connectToLiveKit(url, accessToken) {
@@ -238,6 +252,7 @@
                                 }
                                 
                             } else if (track.kind === LiveKit.Track.Kind.Audio || track.kind === 'audio') {
+                                elements.audio.src = '';
                                 track.attach(elements.audio);
                                 elements.audio.autoplay = true;
                                 elements.audio.muted = false;
@@ -400,6 +415,7 @@
     // Session Management
     // ============================================
     async function startSession() {
+        unlockAudioForMobile();
         try {
             elements.startButton.disabled = true;
             showLoading('Creating session...');
