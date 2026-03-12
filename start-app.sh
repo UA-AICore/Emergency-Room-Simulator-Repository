@@ -6,9 +6,27 @@ set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 RAG_PID=""
+DOTNET_PID=""
+
+# Free ports so we don't leave stale processes from a previous run
+free_port() {
+  local port=$1
+  local pids
+  pids=$(lsof -ti :"$port" 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    echo "Port $port in use (PIDs: $pids); stopping so we can bind cleanly."
+    for pid in $pids; do kill -9 "$pid" 2>/dev/null || true; done
+    sleep 1
+  fi
+}
+
 cleanup() {
   echo ""
   echo "Shutting down..."
+  if [ -n "$DOTNET_PID" ] && kill -0 "$DOTNET_PID" 2>/dev/null; then
+    kill "$DOTNET_PID" 2>/dev/null || true
+    echo ".NET app stopped."
+  fi
   if [ -n "$RAG_PID" ] && kill -0 "$RAG_PID" 2>/dev/null; then
     kill "$RAG_PID" 2>/dev/null || true
     echo "RAG (uvicorn) stopped."
@@ -16,6 +34,10 @@ cleanup() {
   exit 0
 }
 trap cleanup SIGINT SIGTERM
+
+free_port 8010
+free_port 5121
+
 if [ ! -d rag_backend/.venv ] && [ ! -d rag_backend/venv ]; then
   echo "Creating Python venv in rag_backend/.venv and installing dependencies..."
   python3 -m venv rag_backend/.venv
@@ -44,5 +66,7 @@ echo "Starting .NET app (profile: http, localhost only)..."
 echo "  → http://localhost:5121"
 cd ERSimulatorApp
 dotnet build -nologo -v q
-dotnet run --launch-profile http
+dotnet run --launch-profile http &
+DOTNET_PID=$!
+wait $DOTNET_PID
 cleanup

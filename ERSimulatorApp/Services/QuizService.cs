@@ -22,7 +22,7 @@ public class QuizService
         _ragBaseUrl = configuration["RAG:BaseUrl"] ?? "http://127.0.0.1:8010/v1/chat/completions";
         _apiKey = configuration["RAG:ApiKey"] ?? string.Empty;
         _model = configuration["RAG:Model"] ?? "meta-llama/Llama-3.2-1B-instruct";
-        _client.Timeout = TimeSpan.FromSeconds(configuration.GetValue("RAG:TimeoutSeconds", 120));
+        _client.Timeout = TimeSpan.FromSeconds(configuration.GetValue("RAG:TimeoutSeconds", 300));
     }
 
     public async Task<QuizResponse?> GetQuizAsync(string topic, int questionCount = 5, int choicesPerQuestion = 4)
