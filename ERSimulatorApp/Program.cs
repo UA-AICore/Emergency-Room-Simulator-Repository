@@ -70,31 +70,11 @@ builder.Services.AddHttpClient<IHeyGenVideoProxyService, HeyGenVideoProxyService
     client.Timeout = TimeSpan.FromSeconds(heyGenTimeout);
 });
 
-// Register Whisper ASR service (chat and patient avatar)
-var whisperTimeout = builder.Configuration.GetValue<int?>("Whisper:TimeoutSeconds") ?? 60;
-builder.Services.AddHttpClient<IWhisperService, WhisperService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(whisperTimeout);
-});
-
 // ElevenLabs speech-to-text for Dr. Dexter avatar voice input
 var elevenLabsTimeout = builder.Configuration.GetValue<int?>("ElevenLabs:TimeoutSeconds") ?? 60;
 builder.Services.AddHttpClient<IElevenLabsSpeechToTextService, ElevenLabsSpeechToTextService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(elevenLabsTimeout);
-});
-
-// Register Patient Streaming service (for patient avatar)
-var patientTimeout = builder.Configuration.GetValue<int?>("HeyGenPatient:TimeoutSeconds") ?? 120;
-builder.Services.AddHttpClient<IPatientStreamingService, PatientStreamingService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(patientTimeout);
-});
-
-// Register Patient Personality service (OpenAI-based, no RAG)
-builder.Services.AddHttpClient<IPatientPersonalityService, PatientPersonalityService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(openAITimeout);
 });
 
 // Add CORS for development
