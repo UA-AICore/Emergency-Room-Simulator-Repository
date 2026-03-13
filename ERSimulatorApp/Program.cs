@@ -2,8 +2,12 @@ using ERSimulatorApp.Services;
 using Newtonsoft.Json.Serialization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Prefer appsettings.json over appsettings.Development.json so credentials and RAG in appsettings.json win
+builder.Configuration.AddJsonFile("appsettings.json", optional: true, reloadOnChange: false);
 
 // Add forwarded headers middleware to handle reverse proxy scenarios
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
@@ -57,12 +61,27 @@ builder.Services.AddSingleton<ICustomGPTService>(sp =>
 
 builder.Services.AddHttpClient<QuizService>();
 
-// Register HeyGen Streaming service (for real-time avatar streaming)
+// Register HeyGen Streaming service (real or stub when not configured)
+var heyGenApiKey = (builder.Configuration["HeyGen:ApiKey"] ?? "").Trim();
+var heyGenAvatarId = (builder.Configuration["HeyGen:AvatarId"] ?? "").Trim();
+bool isHeyGenPlaceholder = string.IsNullOrWhiteSpace(heyGenApiKey) || string.IsNullOrWhiteSpace(heyGenAvatarId)
+    || heyGenApiKey.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase)
+    || heyGenApiKey.StartsWith("PASTE_", StringComparison.OrdinalIgnoreCase)
+    || heyGenAvatarId.StartsWith("PASTE_", StringComparison.OrdinalIgnoreCase)
+    || heyGenAvatarId.StartsWith("your-heygen", StringComparison.OrdinalIgnoreCase);
+
 var heyGenTimeout = builder.Configuration.GetValue<int?>("HeyGen:TimeoutSeconds") ?? 120;
-builder.Services.AddHttpClient<IHeyGenStreamingService, HeyGenStreamingService>(client =>
+if (isHeyGenPlaceholder)
 {
-    client.Timeout = TimeSpan.FromSeconds(heyGenTimeout);
-});
+    builder.Services.AddSingleton<IHeyGenStreamingService, HeyGenStreamingServiceStub>();
+}
+else
+{
+    builder.Services.AddHttpClient<IHeyGenStreamingService, HeyGenStreamingService>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(heyGenTimeout);
+    });
+}
 
 // Register HeyGen Video Proxy service (for asynchronous video generation)
 builder.Services.AddHttpClient<IHeyGenVideoProxyService, HeyGenVideoProxyService>(client =>
@@ -89,6 +108,11 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
+
+// Log which HeyGen config was loaded (no secrets; helps debug stub vs real)
+var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+var avatarMask = string.IsNullOrEmpty(heyGenAvatarId) ? "(empty)" : (heyGenAvatarId.Length <= 12 ? heyGenAvatarId : heyGenAvatarId.Substring(0, 12) + "...");
+startupLogger.LogInformation("HeyGen: {Mode}, AvatarId: {AvatarId}", isHeyGenPlaceholder ? "stub (not configured)" : "real", avatarMask);
 
 // Use forwarded headers middleware (must be early in pipeline)
 app.UseForwardedHeaders();

@@ -260,10 +260,12 @@ def _use_claude(model: Optional[str]) -> bool:
 
 
 def _is_not_found_in_context(answer: str) -> bool:
-    """True if the RAG answer indicates the topic was not in the indexed materials."""
+    """True if the RAG answer indicates the topic was not in the indexed materials.
+    Detects English and Spanish (and similar) 'not in context' phrasing so Claude fallback runs."""
     if not answer or len(answer.strip()) < 10:
         return False
     a = answer.strip().lower()
+    # English
     if "not found in context" in a:
         return True
     if "don't cover" in a or "doesn't cover" in a or "do not cover" in a:
@@ -272,12 +274,26 @@ def _is_not_found_in_context(answer: str) -> bool:
         return True
     if "no relevant context" in a or "no relevant information" in a:
         return True
+    # Spanish (so fallback gives general-knowledge answer in same language)
+    if "no se encuentra en el contexto" in a or "no está en el contexto" in a:
+        return True
+    if "no cubre" in a and ("tema" in a or "contexto" in a or "información" in a):
+        return True
+    if "la información disponible no cubre" in a:
+        return True
     return False
 
 
-def _rag_answer(question: str, top_k: int = 4, model: Optional[str] = None) -> tuple[str, list[str]]:
+def _rag_answer(
+    question: str,
+    top_k: int = 4,
+    model: Optional[str] = None,
+    prompt_for_llm: Optional[str] = None,
+) -> tuple[str, list[str]]:
     """Run RAG: query Chroma, build context, call LLM. Returns (answer, context_preview).
-    model: optional request model; if it contains 'claude', use Claude API; else Ollama or remote."""
+    model: optional request model; if it contains 'claude', use Claude API; else Ollama or remote.
+    prompt_for_llm: when set (e.g. full conversation from .NET), the LLM sees this so it can resolve
+    references like 'the same answer in English'; retrieval still uses question."""
     top_k = max(1, min(10, top_k))
     results = collection.query(query_texts=[question], n_results=top_k)
 
@@ -295,16 +311,26 @@ def _rag_answer(question: str, top_k: int = 4, model: Optional[str] = None) -> t
         previews.append(f"- {label} {d[:700]}")
 
     context_text = "\n".join(previews)
+    has_conversation = prompt_for_llm is not None and len((prompt_for_llm or "").strip()) > 0
     system_prompt = (
         "You are an ER doctor teaching a student. Use ONLY the context below to answer. You are speaking TO the student—give them the answer directly, as if you are explaining it yourself.\n"
         "CRITICAL: You MUST respond in the EXACT same language as the student's question. If the question is in Spanish, your entire answer must be in Spanish. If in English, answer in English. Do not default to English when the question is in another language.\n"
+    )
+    if has_conversation:
+        system_prompt += (
+            "The student may refer to a previous answer (e.g. 'the same answer in English', 'that in Spanish'). Use the conversation above to identify which answer they mean and provide it in the requested language or form. The context below may still help; use it when relevant.\n"
+        )
+    system_prompt += (
         "FORBIDDEN: Do not refer to the context as text or a document. Never say: 'this text focuses on', 'the document says', 'it talks about', 'the context mentions'. Never describe what the source says; instead, teach that information as your own.\n"
         "GOOD: 'With blunt abdominal trauma, patients often have tenderness, guarding, and rigidity—so we examine them carefully.'\n"
         "BAD: 'This text focuses on trauma and talks about abdominal tenderness.'\n"
         "If the answer is not in the context, say: \"Not found in context.\" Answer in 2–4 short sentences. Use \"you\" and a warm tone. No bullet points unless they ask for a list. Do NOT repeat the ABCDE list unless they ask for ABCDE.\n"
     )
-    lang_hint = _language_hint(question)
-    user_content = f"{lang_hint}Question: {question}\n\nContext:\n{context_text}"
+    lang_hint = _language_hint(prompt_for_llm if has_conversation else question)
+    if has_conversation:
+        user_content = f"{lang_hint}{prompt_for_llm.strip()}\n\nContext from reference materials:\n{context_text}"
+    else:
+        user_content = f"{lang_hint}Question: {question}\n\nContext:\n{context_text}"
 
     try:
         if _use_claude(model):
@@ -334,13 +360,17 @@ def _rag_answer(question: str, top_k: int = 4, model: Optional[str] = None) -> t
     if _use_claude(model) and _is_not_found_in_context(answer):
         try:
             fallback_system = (
-                "You are an ER physician teaching a student. The student asked a medical question that is not in your trauma-focused reference materials. "
-                "Give a concise, helpful answer from general medical knowledge in 2–4 short sentences. Use a warm, teaching tone. "
-                "CRITICAL: You MUST respond in the EXACT same language as the student's question. If they asked in Spanish, answer entirely in Spanish. If in English, in English. Do not default to English.\n"
+                "You are an ER physician teaching a student. The student may have asked a medical question not in your trauma-focused reference materials, or they may be asking you to repeat/translate a previous answer (e.g. 'the same answer in English'). "
+                "If they refer to a previous answer, use the conversation to identify which answer they mean and provide it in the requested language. Otherwise give a concise, helpful answer from general medical knowledge in 2–4 short sentences. Use a warm, teaching tone. "
+                "CRITICAL: You MUST respond in the EXACT same language as the student's current question. If they asked in Spanish, answer entirely in Spanish. If in English, in English. Do not default to English.\n"
                 "Do not say the topic was not in your materials—just answer the question directly."
             )
-            fallback_user = f"{_language_hint(question)}Question: {question}"
-            answer = call_claude(system=fallback_system, user_content=fallback_user, max_tokens=512)
+            fallback_user = (
+                f"{_language_hint(prompt_for_llm if has_conversation else question)}"
+                + ("Question: " if not has_conversation else "")
+                + (prompt_for_llm.strip() if has_conversation else question)
+            )
+            answer = call_claude(system=fallback_system, user_content=fallback_user, max_tokens=1024)
             # Return empty previews so the UI doesn't show RAG references for this general answer
             return answer, []
         except Exception as e:
@@ -488,8 +518,10 @@ def chat_completions(req: OpenAIChatRequest):
 
     # Use only the current question for retrieval so we get PDF chunks about the topic, not the conversation
     question_for_rag = extract_question_for_rag(full_prompt)
+    has_conversation = "Student's current question:" in full_prompt or "Recent conversation:" in full_prompt
+    prompt_for_llm = full_prompt if has_conversation else None
     requested_model = (req.model or "").strip() or None
-    answer, previews = _rag_answer(question_for_rag, top_k=5, model=requested_model)
+    answer, previews = _rag_answer(question_for_rag, top_k=5, model=requested_model, prompt_for_llm=prompt_for_llm)
 
     return {
         "id": "rag-chat-" + str(uuid.uuid4()),

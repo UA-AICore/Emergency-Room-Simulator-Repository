@@ -13,8 +13,6 @@ namespace ERSimulatorApp.Services
         private readonly HttpClient _httpClient;
         private readonly ILogger<RAGService> _logger;
         private readonly IConfiguration _configuration;
-        private readonly string _ragBaseUrl;
-        private readonly string _apiKey;
         private readonly string _model;
         private readonly string? _claudeModel;
         private readonly int _topK;
@@ -28,8 +26,6 @@ namespace ERSimulatorApp.Services
             _httpClient = httpClient;
             _logger = logger;
             _configuration = configuration;
-            _ragBaseUrl = configuration["RAG:BaseUrl"] ?? "https://aicore-llmserver-healthcare.tra220030.projects.jetstream-cloud.org/v1/chat/completions";
-            _apiKey = configuration["RAG:ApiKey"] ?? string.Empty;
             _model = configuration["RAG:Model"] ?? "meta-llama/Llama-3.2-1B-instruct";
             _claudeModel = configuration["RAG:ClaudeModel"]?.Trim();
             _topK = configuration.GetValue<int?>("RAG:TopK") ?? 5;
@@ -40,6 +36,13 @@ namespace ERSimulatorApp.Services
         }
 
         private const string FallbackMessage = "I'm sorry, my reference services are offline right now. Please try again later.";
+        private const string DefaultRagBaseUrl = "https://aicore-llmserver-healthcare.tra220030.projects.jetstream-cloud.org/v1/chat/completions";
+
+        /// <summary>Read RAG BaseUrl from config on each use so we never hold a stale URL after usage.</summary>
+        private string GetRagBaseUrl() => _configuration["RAG:BaseUrl"] ?? DefaultRagBaseUrl;
+
+        /// <summary>Read RAG ApiKey from config on each use.</summary>
+        private string GetRagApiKey() => _configuration["RAG:ApiKey"] ?? string.Empty;
 
         public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null)
         {
@@ -67,6 +70,9 @@ namespace ERSimulatorApp.Services
                 };
             }
 
+            var ragBaseUrl = GetRagBaseUrl();
+            var ragApiKey = GetRagApiKey();
+
             try
             {
                 // OpenAI-compatible chat completions request format (model tells RAG backend: ollama vs claude)
@@ -85,18 +91,18 @@ namespace ERSimulatorApp.Services
                 var ragContent = new StringContent(ragJson, Encoding.UTF8, "application/json");
 
                 _logger.LogInformation("Sending prompt to RAG server at {RagUrl}: {PromptPreview}...",
-                    _ragBaseUrl, prompt.Substring(0, Math.Min(50, prompt.Length)));
+                    ragBaseUrl, prompt.Substring(0, Math.Min(50, prompt.Length)));
 
                 // Create request with headers to avoid thread-safety issues
-                var requestMessage = new HttpRequestMessage(HttpMethod.Post, _ragBaseUrl)
+                var requestMessage = new HttpRequestMessage(HttpMethod.Post, ragBaseUrl)
                 {
                     Content = ragContent
                 };
                 
                 // Add API key if configured
-                if (!string.IsNullOrWhiteSpace(_apiKey))
+                if (!string.IsNullOrWhiteSpace(ragApiKey))
                 {
-                    requestMessage.Headers.Add("Authorization", $"Bearer {_apiKey}");
+                    requestMessage.Headers.Add("Authorization", $"Bearer {ragApiKey}");
                 }
 
                 var ragResponse = await _httpClient.SendAsync(requestMessage);

@@ -3,30 +3,36 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#1e88e5" />
+    <meta name="theme-color" content="#1c1c1e" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <title>@ViewData["Title"] - ERSimulatorApp</title>
+    <title>@ViewData["Title"] - CoDIRA</title>
     <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
     <link rel="stylesheet" href="~/ERSimulatorApp.styles.css" asp-append-version="true" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <link rel="stylesheet" href="~/css/custom.css" asp-append-version="true" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
 </head>
-<body class="d-flex flex-column min-vh-100 app-body">
-    <header class="app-header">
-        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-light bg-white border-bottom box-shadow">
-            <div class="container-fluid d-flex justify-content-center">
-                <a class="navbar-brand" asp-area="" asp-page="/Avatar">CoDIRA v1.1.4</a>
+<body class="d-flex flex-column min-vh-100 app-body app-body--call">
+    <header class="app-header app-header--minimal">
+        <nav class="navbar navbar-expand-sm navbar-toggleable-sm navbar-dark">
+            <div class="container-fluid d-flex justify-content-center justify-content-sm-between px-3">
+                <a class="navbar-brand" asp-area="" asp-page="/Avatar">CoDIRA</a>
+                <span class="navbar-version d-none d-sm-inline">v1.1.4</span>
             </div>
         </nav>
     </header>
-    <main class="flex-grow-1">
+    <main class="flex-grow-1 d-flex flex-column main--call">
         @RenderBody()
     </main>
 
-    <footer class="border-top footer text-muted app-footer">
-        <div class="container">
-            &copy; 2025 - CoDIRA — <a asp-area="" asp-page="/Privacy">Privacy</a> · <a asp-area="" asp-page="/Logs">Log</a>
+    <footer class="app-footer app-footer--minimal">
+        <div class="container py-2">
+            <a asp-area="" asp-page="/Privacy">Privacy</a>
+            <span class="footer-dot">·</span>
+            <a asp-area="" asp-page="/Logs">Log</a>
         </div>
     </footer>
 

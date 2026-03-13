@@ -61,6 +61,9 @@ namespace ERSimulatorApp.Controllers
         /// <summary>Per-session conversation history for Dr. Dexter (student questions + his answers).</summary>
         private static readonly ConcurrentDictionary<string, List<ConversationMessage>> _avatarHistory = new();
 
+        /// <summary>Session IDs we've already called HeyGen streaming.start for (avoid redundant 400).</summary>
+        private static readonly ConcurrentDictionary<string, byte> _sessionsStarted = new();
+
         private const int AvatarContextMessageCount = 32; // last 16 exchanges (student + Dr. Dexter each) for wider context
 
         /// <summary>Message sent by the frontend when the avatar session starts (Avatar.cshtml).</summary>
@@ -329,15 +332,19 @@ namespace ERSimulatorApp.Controllers
                     _logger.LogInformation("Using Ollama fallback response for avatar (RAG HTTP was unavailable).");
                 }
 
-                // Step 3: Start the session if not already started
-                try
+                // Step 3: Start the session if not already started (skip if we've already started this session to avoid HeyGen 400)
+                if (!_sessionsStarted.ContainsKey(conversationId))
                 {
-                    await _heyGenService.StartStreamingSessionAsync(conversationId, streamingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error starting streaming session (may already be started): {Message}", ex.Message);
-                    // Continue - session might already be started
+                    try
+                    {
+                        await _heyGenService.StartStreamingSessionAsync(conversationId, streamingToken);
+                        _sessionsStarted.TryAdd(conversationId, 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error starting streaming session (may already be started): {Message}", ex.Message);
+                        // Continue - session might already be started
+                    }
                 }
 
                 // Step 4: Send RAG response to HeyGen for avatar speech
@@ -532,15 +539,18 @@ namespace ERSimulatorApp.Controllers
                     _logger.LogInformation("Using Ollama fallback response for avatar (RAG HTTP was unavailable).");
                 }
 
-                // Step 2: Start the session if not already started (required before sending tasks)
-                try
+                // Step 2: Start the session if not already started (skip if already started to avoid HeyGen 400)
+                if (!_sessionsStarted.ContainsKey(request.ConversationId))
                 {
-                    await _heyGenService.StartStreamingSessionAsync(request.ConversationId, request.StreamingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error starting streaming session (may already be started): {Message}", ex.Message);
-                    // Continue - session might already be started
+                    try
+                    {
+                        await _heyGenService.StartStreamingSessionAsync(request.ConversationId, request.StreamingToken);
+                        _sessionsStarted.TryAdd(request.ConversationId, 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error starting streaming session (may already be started): {Message}", ex.Message);
+                    }
                 }
 
                 // Step 3: Send to HeyGen for avatar speech (uses textToSendTask: RAG response or fallback)
@@ -746,7 +756,7 @@ namespace ERSimulatorApp.Controllers
                 // or the URL might work anyway
             }
 
-            var url = Url.Action("GetSourceFile", "Chat", new { filename = safeFileName });
+            var url = Url.Action("GetSourceFile", "AvatarStreaming", new { filename = safeFileName });
             if (string.IsNullOrWhiteSpace(url))
             {
                 _logger.LogWarning("BuildSourceUrl: Url.Action returned null for filename: {SafeFileName}", safeFileName);
@@ -755,6 +765,32 @@ namespace ERSimulatorApp.Controllers
             
             _logger.LogDebug("BuildSourceUrl: Created URL {Url} for filename: {SafeFileName}", url, safeFileName);
             return url;
+        }
+
+        /// <summary>
+        /// Serve a source document PDF by filename (from RAG references). Used for source links in the avatar UI.
+        /// </summary>
+        [HttpGet("source-file")]
+        public IActionResult GetSourceFile([FromQuery] string filename)
+        {
+            if (string.IsNullOrWhiteSpace(filename))
+            {
+                return BadRequest(new { error = "Filename is required" });
+            }
+            var safeFileName = Path.GetFileName(filename);
+            if (string.IsNullOrWhiteSpace(safeFileName))
+            {
+                return BadRequest(new { error = "Invalid filename" });
+            }
+            var filePath = Path.Combine(_sourceDocumentsPath, safeFileName);
+            if (!System.IO.File.Exists(filePath))
+            {
+                return NotFound(new { error = "File not found", filename = safeFileName });
+            }
+            var contentType = "application/pdf";
+            if (safeFileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+                contentType = "text/plain";
+            return PhysicalFile(filePath, contentType, safeFileName);
         }
 
         /// <summary>
@@ -800,6 +836,7 @@ namespace ERSimulatorApp.Controllers
                 _logger.LogInformation("Stopping streaming session: {SessionId}", request.SessionId);
 
                 await _heyGenService.StopStreamingSessionAsync(request.SessionId, request.StreamingToken);
+                _sessionsStarted.TryRemove(request.SessionId, out _);
 
                 return Ok(new { success = true });
             }

@@ -19,11 +19,24 @@ cleanup() {
   exit 0
 }
 trap cleanup SIGINT SIGTERM
-echo "Starting RAG backend on port 8010..."
-source rag_backend/.venv/bin/activate 2>/dev/null || source rag_backend/venv/bin/activate
-(cd rag_backend && python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8010) &
-RAG_PID=$!
-echo "RAG PID: $RAG_PID"
+
+# Check if port 8010 is already in use (e.g. from a previous run)
+if command -v ss >/dev/null 2>&1; then
+  PORT_IN_USE=$(ss -tlnp 2>/dev/null | grep -c ':8010 ' || true)
+else
+  PORT_IN_USE=$( (echo >/dev/tcp/127.0.0.1/8010) 2>/dev/null && echo 1 || echo 0)
+fi
+if [ "${PORT_IN_USE:-0}" -gt 0 ]; then
+  echo "Port 8010 already in use; assuming RAG is already running. Skipping RAG startup."
+  RAG_PID=""
+else
+  echo "Starting RAG backend on port 8010..."
+  source rag_backend/.venv/bin/activate 2>/dev/null || source rag_backend/venv/bin/activate
+  (cd rag_backend && python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8010) &
+  RAG_PID=$!
+  echo "RAG PID: $RAG_PID"
+fi
+
 echo "Waiting for RAG to be ready..."
 for i in 1 2 3 4 5 6 7 8 9 10; do
   if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8010/health 2>/dev/null | grep -q 200; then

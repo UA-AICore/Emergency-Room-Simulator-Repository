@@ -17,51 +17,49 @@
 
 <div class="container-fluid h-100 py-4">
     <div class="row h-100 g-4">
-        <!-- Main Avatar Area -->
+        <!-- Main call area -->
         <div class="col-lg-12 d-flex flex-column">
             <div class="chat-container flex-grow-1 d-flex flex-column">
-                <!-- Header -->
+                <!-- Minimal header -->
                 <div class="chat-header">
-                    <h4 class="mb-2">
-                        <i class="fas fa-user-md me-2"></i>
-                        Medical Instructor Avatar
-                        <span class="badge bg-light text-dark ms-2" id="statusBadge">
+                    <h4 class="mb-0">
+                        Dr. Dexter
+                        <span class="badge ms-2" id="statusBadge">
                             <i class="fas fa-circle text-secondary"></i> Ready
                         </span>
                     </h4>
-                    <small class="text-white-50">
-                        <i class="fas fa-id-card me-1"></i>
-                        Session: <span id="sessionIdDisplay">-</span>
+                    <small>
+                        Session <span id="sessionIdDisplay">—</span>
                     </small>
                 </div>
                 
-                <!-- Video Container -->
+                <!-- Video (hero) -->
                 <div class="avatar-video-container position-relative">
-                    <video id="avatarVideo" autoplay playsinline muted style="width: 100%; max-width: 800px; border: 1px solid #ccc; background:#000;" hidden></video>
+                    <video id="avatarVideo" autoplay playsinline muted class="w-100" style="max-width: 800px; background: #000;" hidden></video>
                     <audio id="avatarAudio" autoplay volume="1.0"></audio>
-                    <div id="placeholder" class="text-center text-white p-5">
-                        <i class="fas fa-user-md fa-5x mb-4" style="opacity: 0.5;"></i>
-                        <h5>Medical Instructor Avatar</h5>
-                        <p class="text-white-50">Click "Start Session" to begin your conversation</p>
+                    <div id="placeholder" class="text-center p-5">
+                        <i class="fas fa-video fa-4x mb-3 placeholder-icon"></i>
+                        <h5>Ready to connect</h5>
+                        <p class="placeholder-hint">Tap Start Session to begin</p>
                     </div>
-                    <div id="loading" class="text-center text-white p-5" hidden>
-                        <div class="spinner-border text-light mb-3" role="status"></div>
+                    <div id="loading" class="avatar-loading-overlay text-center p-5" hidden>
+                        <div class="spinner-border mb-3" role="status"></div>
                         <p id="loadingText">Connecting...</p>
                     </div>
                 </div>
                 
-                <!-- Chat History -->
+                <!-- Transcript -->
                 <div class="chat-messages chat-transcript" id="chatHistory">
                     <div class="text-center text-muted py-4">
-                        <i class="fas fa-comments fa-2x mb-2"></i>
-                        <p class="mb-0">Conversation transcript will appear here</p>
+                        <i class="fas fa-comment-dots fa-2x mb-2 transcript-placeholder-icon"></i>
+                        <p class="mb-0">Transcript appears here</p>
                     </div>
                 </div>
                 
-                <!-- Input Controls -->
+                <!-- Controls (call-style bar) -->
                 <div class="chat-input-container">
                     <div class="input-group input-group-mobile">
-                        <input type="text" id="messageInput" class="form-control" placeholder="Ask your medical question..." maxlength="500" disabled>
+                        <input type="text" id="messageInput" class="form-control" placeholder="Ask a question..." maxlength="500" disabled>
                         <button class="btn btn-primary" type="button" id="sendButton" disabled>
                             <i class="fas fa-paper-plane me-2"></i>Send
                         </button>
@@ -72,29 +70,24 @@
                             <i class="fas fa-play me-2"></i>Start Session
                         </button>
                         <button class="btn btn-danger" type="button" id="stopButton" hidden>
-                            <i class="fas fa-stop me-2"></i>Stop Session
+                            <i class="fas fa-stop me-2"></i>Stop
                         </button>
                     </div>
                     <div class="mt-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
                         <small class="text-muted">
-                            <i class="fas fa-keyboard me-1"></i>
-                            Type or <i class="fas fa-microphone me-1"></i> speak your question
+                            Type or use voice
                         </small>
                         <div class="d-flex align-items-center gap-2">
                             <label class="d-flex align-items-center gap-1 small text-muted mb-0 cursor-pointer">
-                                <input type="checkbox" id="useClaudeToggle" class="form-check-input" title="Use Claude instead of local Ollama (same RAG PDFs)">
-                                <span><i class="fas fa-brain me-1"></i>Use Claude</span>
+                                <input type="checkbox" id="useLocalToggle" class="form-check-input" title="Use local Ollama instead of Claude (debugging)">
+                                <span>Use local</span>
                             </label>
-                            <small class="text-muted">
-                                <i class="fas fa-video me-1"></i>
-                                HeyGen + RAG
-                            </small>
                         </div>
                     </div>
                     <div id="recordingStatus" class="mt-2" hidden>
                         <small class="text-warning">
                             <i class="fas fa-circle me-1" style="animation: pulse 1s infinite;"></i>
-                            Recording... Click again to stop and send
+                            Recording… tap again to send
                         </small>
                     </div>
                 </div>
@@ -134,7 +127,7 @@
     // Configuration & State
     // ============================================
     const API_BASE = '/api/avatar/v2/streaming';
-    const KEEPALIVE_INTERVAL_MS = 45000; // HeyGen sessions can close when idle; ping every 45s
+    const KEEPALIVE_INTERVAL_MS = 30000; // HeyGen sessions can close when idle; ping every 30s to reduce "Connection lost"
     let liveKitRoom = null;
     let sessionData = null;
     let streamingToken = null; // Cache the token used to create the session
@@ -562,7 +555,8 @@
             throw new Error('Streaming token is required. Please restart the session.');
         }
 
-        const useClaude = document.getElementById('useClaudeToggle')?.checked === true;
+        // Default is Claude; "Use local" checked = Ollama (debugging)
+        const useClaude = document.getElementById('useLocalToggle')?.checked !== true;
         const payload = {
             message: message,
             conversationId: sessionId,
@@ -821,7 +815,6 @@
         addMessage('User', message);
         elements.messageInput.value = '';
         elements.sendButton.disabled = true;
-        showLoading('Processing...');
         updateStatus('Processing...', 'warning');
 
         try {
@@ -841,12 +834,10 @@
                 updateSources(response.sources, response.isFallback);
             }
 
-            hideLoading();
             updateStatus(response.sessionExpired ? 'Disconnected' : 'Connected', response.sessionExpired ? 'danger' : 'success');
         } catch (error) {
             console.error('Error sending message:', error);
             addMessage('System', `Error: ${error.message}`, true);
-            hideLoading();
             updateStatus('Error', 'danger');
         } finally {
             elements.sendButton.disabled = false;
@@ -1054,8 +1045,7 @@
         }
 
         try {
-            showLoading('Processing audio with ElevenLabs...');
-            updateStatus('Sending audio for transcription...', 'warning');
+            updateStatus('Processing audio...', 'warning');
             
             // Determine file extension based on blob type
             let fileExtension = 'webm';
@@ -1085,7 +1075,8 @@
             } else {
                 console.warn('[AUDIO] WARNING: streamingToken is missing!');
             }
-            const useClaude = document.getElementById('useClaudeToggle')?.checked === true;
+            // Default is Claude; "Use local" checked = Ollama (debugging)
+            const useClaude = document.getElementById('useLocalToggle')?.checked !== true;
             formData.append('useClaude', useClaude ? 'true' : 'false');
 
             // Log FormData contents for debugging
@@ -1158,7 +1149,6 @@
                 updateSources(data.sources, data.isFallback);
             }
 
-            hideLoading();
             updateStatus('Connected', 'success');
 
         } catch (error) {
@@ -1170,7 +1160,6 @@
             });
             
             addMessage('System', `Error: ${error.message}`, true);
-            hideLoading();
             updateStatus('Error', 'danger');
         } finally {
             elements.recordButton.disabled = false;
