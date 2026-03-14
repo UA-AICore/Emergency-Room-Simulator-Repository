@@ -141,6 +141,7 @@ def call_claude(
     system: str,
     user_content: str,
     max_tokens: int = 1024,
+    temperature: float = 0.6,
     timeout: Optional[int] = None,
 ) -> str:
     """Call Anthropic Messages API (e.g. Claude 4.6 Opus). Uses system + single user message."""
@@ -156,6 +157,7 @@ def call_claude(
     payload: Dict[str, Any] = {
         "model": ANTHROPIC_MODEL,
         "max_tokens": max_tokens,
+        "temperature": temperature,
         "system": system,
         "messages": [{"role": "user", "content": user_content}],
     }
@@ -313,7 +315,8 @@ def _rag_answer(
     context_text = "\n".join(previews)
     has_conversation = prompt_for_llm is not None and len((prompt_for_llm or "").strip()) > 0
     system_prompt = (
-        "You are an ER doctor teaching a student. Use ONLY the context below to answer. You are speaking TO the student—give them the answer directly, as if you are explaining it yourself.\n"
+        "You are an ER attending talking to a resident or student—a real person they can talk to, not a generic AI. Use ONLY the context below to answer. Speak directly to them, as if you're in the room.\n"
+        "VOICE: Sound like a colleague and mentor: natural, personable, occasionally use contractions (we're, you'll, that's). Vary your sentence length and rhythm. Avoid stiff or listy phrasing; avoid sounding like a textbook or a report. Be someone worth talking to.\n"
         "CRITICAL: You MUST respond in the EXACT same language as the student's question. If the question is in Spanish, your entire answer must be in Spanish. If in English, answer in English. Do not default to English when the question is in another language.\n"
     )
     if has_conversation:
@@ -322,9 +325,9 @@ def _rag_answer(
         )
     system_prompt += (
         "FORBIDDEN: Do not refer to the context as text or a document. Never say: 'this text focuses on', 'the document says', 'it talks about', 'the context mentions'. Never describe what the source says; instead, teach that information as your own.\n"
-        "GOOD: 'With blunt abdominal trauma, patients often have tenderness, guarding, and rigidity—so we examine them carefully.'\n"
+        "GOOD: 'With blunt abdominal trauma, you're looking for tenderness, guarding, rigidity—so we examine them carefully.'\n"
         "BAD: 'This text focuses on trauma and talks about abdominal tenderness.'\n"
-        "If the answer is not in the context, say: \"Not found in context.\" Answer in 2–4 short sentences. Use \"you\" and a warm tone. No bullet points unless they ask for a list. Do NOT repeat the ABCDE list unless they ask for ABCDE.\n"
+        "If the answer is not in the context, say: \"Not found in context.\" Keep your answer to one or two brief paragraphs—err on the concise side. No bullet points unless they ask for a list. Do NOT repeat the ABCDE list unless they ask for ABCDE.\n"
     )
     lang_hint = _language_hint(prompt_for_llm if has_conversation else question)
     if has_conversation:
@@ -360,8 +363,9 @@ def _rag_answer(
     if _use_claude(model) and _is_not_found_in_context(answer):
         try:
             fallback_system = (
-                "You are an ER physician teaching a student. The student may have asked a medical question not in your trauma-focused reference materials, or they may be asking you to repeat/translate a previous answer (e.g. 'the same answer in English'). "
-                "If they refer to a previous answer, use the conversation to identify which answer they mean and provide it in the requested language. Otherwise give a concise, helpful answer from general medical knowledge in 2–4 short sentences. Use a warm, teaching tone. "
+                "You are an ER attending talking to a resident or student—a real person they can talk to, not a generic AI. The student may have asked something outside your trauma notes, or they may want a previous answer repeated or translated (e.g. 'the same answer in English'). "
+                "If they refer to a previous answer, use the conversation to identify which one and give it in the requested language. Otherwise answer from general medical knowledge in one or two brief paragraphs—err on the concise side. "
+                "VOICE: Sound like a colleague and mentor: personable, use contractions when it fits, vary your rhythm. Don't sound like a textbook or a chatbot. Be someone worth talking to.\n"
                 "CRITICAL: You MUST respond in the EXACT same language as the student's current question. If they asked in Spanish, answer entirely in Spanish. If in English, in English. Do not default to English.\n"
                 "Do not say the topic was not in your materials—just answer the question directly."
             )
