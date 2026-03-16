@@ -123,6 +123,10 @@ You should see the CoDIRA app. Use **Start Session** on the Avatar page to begin
 
 ## Troubleshooting
 
+- **“Reference database unavailable” or “reference base unavailable”**  
+  The app can’t reach the RAG backend. When you start the .NET app, check the console: you should see a warning like *“RAG backend not reachable at … Start the RAG backend first (e.g. ./start-app.sh from repo root).”*  
+  **Fix:** From the **repo root**, run `./start-app.sh` so the RAG backend starts on port 8010 before the .NET app. Don’t run only `dotnet run` from `ERSimulatorApp` unless the RAG backend is already running in another terminal.
+
 - **“Connection refused” or RAG errors**  
   Make sure `appsettings.Development.json` has  
   `"BaseUrl": "http://127.0.0.1:8010/v1/chat/completions"`  
@@ -133,6 +137,9 @@ You should see the CoDIRA app. Use **Start Session** on the Avatar page to begin
 
 - **Voice / microphone**  
   On plain HTTP localhost, some browsers may restrict microphone access. If you need voice for the demo, consider using the server (HTTPS) flow described in the main setup/demo docs instead.
+
+- **HeyGen 401 Unauthorized / “HeyGen is not configured”**  
+  The app no longer calls the HeyGen API when `HeyGen:ApiKey` or `HeyGen:AvatarId` are missing or still set to placeholders (e.g. `PASTE_MEDICAL_INSTRUCTOR_AVATAR_ID`). You’ll get a clear error when you click **Start Session**. To use the avatar, set real values in `appsettings.json` or `appsettings.Development.json`; otherwise you can run without HeyGen (RAG/Dr. Dexter text still works).
 
 - **Windows**  
   Run the script in Git Bash or WSL, or run the same steps by hand:  
