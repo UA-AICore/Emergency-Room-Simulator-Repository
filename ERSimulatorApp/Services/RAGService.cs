@@ -132,6 +132,11 @@ namespace ERSimulatorApp.Services
                 _logger.LogInformation("RAG response parsing - HasSources: {HasSources}, SourcesCount: {Count}, HasContextPreview: {HasContext}, ContextPreviewCount: {ContextCount}",
                     ragData.Sources != null, ragData.Sources?.Count ?? 0, 
                     ragData.ContextPreview != null, ragData.ContextPreview?.Count ?? 0);
+
+                if (!string.IsNullOrEmpty(ragData.RetrievalSource))
+                    _logger.LogInformation("RAG retrieval_source from Python server: {Source} (knowledge_api=Knowledge Base HTTP | chromadb=indexed PDFs)", ragData.RetrievalSource);
+                else
+                    _logger.LogDebug("RAG response had no retrieval_source field (older RAG server).");
                 
                 // Try to parse as JsonDocument to check for other possible source fields
                 try
@@ -557,6 +562,10 @@ namespace ERSimulatorApp.Services
         
         [JsonPropertyName("context_preview")]
         public List<string>? ContextPreview { get; set; }
+
+        /// <summary>RAG Python server: "knowledge_api" (HTTP KB) vs "chromadb" (PDF chunks).</summary>
+        [JsonPropertyName("retrieval_source")]
+        public string? RetrievalSource { get; set; }
     }
     
     public class OpenAIUsage

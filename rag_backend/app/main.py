@@ -2,9 +2,11 @@
 # Fully cleaned and updated to remove forced ABCDE answers
 
 # ---------- Standard library ----------
+import json
+import logging
 import os
 import uuid
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 
 # ---------- Third-party ----------
 from fastapi import FastAPI
@@ -51,6 +53,38 @@ ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-6").strip() or "cl
 ANTHROPIC_TIMEOUT = int(os.getenv("ANTHROPIC_TIMEOUT", "120"))
 ANTHROPIC_VERSION = "2023-06-01"
 
+# ---------- Knowledge Base API (optional; replaces Chroma retrieval when RAG_CONTEXT_SOURCE=knowledge_api) ----------
+RAG_CONTEXT_SOURCE = os.getenv("RAG_CONTEXT_SOURCE", "chromadb").strip().lower()
+KNOWLEDGE_API_SEARCH_URL = os.getenv("KNOWLEDGE_API_SEARCH_URL", "").strip()
+KNOWLEDGE_API_KEY = os.getenv("KNOWLEDGE_API_KEY", "").strip()
+KNOWLEDGE_API_AUTH_STYLE = os.getenv("KNOWLEDGE_API_AUTH_STYLE", "bearer").strip().lower()
+KNOWLEDGE_API_AUTH_HEADER = os.getenv("KNOWLEDGE_API_AUTH_HEADER", "Authorization").strip() or "Authorization"
+KNOWLEDGE_API_AUTH_PREFIX = os.getenv("KNOWLEDGE_API_AUTH_PREFIX", "Bearer ").strip()
+KNOWLEDGE_API_METHOD = os.getenv("KNOWLEDGE_API_METHOD", "POST").strip().upper()
+KNOWLEDGE_API_QUERY_KEY = os.getenv("KNOWLEDGE_API_QUERY_KEY", "query").strip() or "query"
+KNOWLEDGE_API_TOP_K_KEY = os.getenv("KNOWLEDGE_API_TOP_K_KEY", "top_k").strip() or "top_k"
+KNOWLEDGE_API_EXTRA_BODY = os.getenv("KNOWLEDGE_API_EXTRA_BODY", "").strip()
+KNOWLEDGE_API_TIMEOUT = int(os.getenv("KNOWLEDGE_API_TIMEOUT", "60"))
+KNOWLEDGE_API_CONTENT_TYPE = os.getenv("KNOWLEDGE_API_CONTENT_TYPE", "application/json").strip()
+KNOWLEDGE_API_GET_QUERY_PARAM = os.getenv("KNOWLEDGE_API_GET_QUERY_PARAM", "q").strip() or "q"
+KNOWLEDGE_API_GET_LIMIT_PARAM = os.getenv("KNOWLEDGE_API_GET_LIMIT_PARAM", "limit").strip() or "limit"
+KNOWLEDGE_API_QUERY_AUTH_PARAM = os.getenv("KNOWLEDGE_API_QUERY_AUTH_PARAM", "api_key").strip() or "api_key"
+KNOWLEDGE_API_HEADERS_JSON = os.getenv("KNOWLEDGE_API_HEADERS_JSON", "").strip()
+
+if RAG_CONTEXT_SOURCE == "knowledge_api" and not KNOWLEDGE_API_SEARCH_URL:
+    logging.warning(
+        "RAG_CONTEXT_SOURCE=knowledge_api but KNOWLEDGE_API_SEARCH_URL is empty — RAG will return errors until set."
+    )
+
+# Console-friendly retrieval debugging (visible at default uvicorn log level)
+_rag_log = logging.getLogger("rag")
+
+
+def _retrieval_source_label() -> str:
+    """Value returned in API JSON and used in logs."""
+    return "knowledge_api" if RAG_CONTEXT_SOURCE == "knowledge_api" else "chromadb"
+
+
 # ---------- ChromaDB setup ----------
 DB_PATH = "vector_store/chroma"
 COLLECTION_NAME = "medical_docs"
@@ -67,6 +101,14 @@ except Exception:
         COLLECTION_NAME,
         embedding_function=embed_fn
     )
+
+_rag_log.info(
+    "RAG startup: retrieval=%s | chromadb: PDF chunks + embeddings | knowledge_api: HTTP Knowledge Base | "
+    "active_mode=%s | kb_url_configured=%s",
+    _retrieval_source_label(),
+    RAG_CONTEXT_SOURCE,
+    bool(KNOWLEDGE_API_SEARCH_URL),
+)
 
 # ---------- LLM helper functions ----------
 
@@ -286,24 +328,204 @@ def _is_not_found_in_context(answer: str) -> bool:
     return False
 
 
+def _knowledge_api_headers() -> Dict[str, str]:
+    headers: Dict[str, str] = {"Content-Type": KNOWLEDGE_API_CONTENT_TYPE}
+    if KNOWLEDGE_API_HEADERS_JSON:
+        try:
+            extra = json.loads(KNOWLEDGE_API_HEADERS_JSON)
+            if isinstance(extra, dict):
+                for k, v in extra.items():
+                    headers[str(k)] = str(v)
+        except json.JSONDecodeError:
+            logging.warning("KNOWLEDGE_API_HEADERS_JSON is not valid JSON; ignoring.")
+    if KNOWLEDGE_API_KEY and KNOWLEDGE_API_AUTH_STYLE == "bearer":
+        headers[KNOWLEDGE_API_AUTH_HEADER] = f"{KNOWLEDGE_API_AUTH_PREFIX}{KNOWLEDGE_API_KEY}".strip()
+    elif KNOWLEDGE_API_KEY and KNOWLEDGE_API_AUTH_STYLE == "api_key":
+        hname = KNOWLEDGE_API_AUTH_HEADER if KNOWLEDGE_API_AUTH_HEADER != "Authorization" else "X-Api-Key"
+        headers[hname] = KNOWLEDGE_API_KEY
+    return headers
+
+
+def _knowledge_api_request(question: str, top_k: int) -> Optional[Any]:
+    """Call external KB search; return parsed JSON or None on failure."""
+    if not KNOWLEDGE_API_SEARCH_URL:
+        return None
+    s = requests.Session()
+    s.mount("https://", HTTPAdapter(max_retries=Retry(total=2, backoff_factor=0.3)))
+    s.mount("http://", HTTPAdapter(max_retries=Retry(total=2, backoff_factor=0.3)))
+    try:
+        if KNOWLEDGE_API_METHOD == "GET":
+            params: Dict[str, str] = {
+                KNOWLEDGE_API_GET_QUERY_PARAM: question,
+                KNOWLEDGE_API_GET_LIMIT_PARAM: str(top_k),
+            }
+            if KNOWLEDGE_API_KEY and KNOWLEDGE_API_AUTH_STYLE == "query":
+                params[KNOWLEDGE_API_QUERY_AUTH_PARAM] = KNOWLEDGE_API_KEY
+            hdrs = {k: v for k, v in _knowledge_api_headers().items() if k.lower() != "content-type"}
+            r = s.get(
+                KNOWLEDGE_API_SEARCH_URL,
+                params=params,
+                headers=hdrs,
+                timeout=KNOWLEDGE_API_TIMEOUT,
+            )
+        else:
+            body: Dict[str, Any] = {
+                KNOWLEDGE_API_QUERY_KEY: question,
+                KNOWLEDGE_API_TOP_K_KEY: top_k,
+            }
+            if KNOWLEDGE_API_EXTRA_BODY:
+                try:
+                    body.update(json.loads(KNOWLEDGE_API_EXTRA_BODY))
+                except json.JSONDecodeError:
+                    logging.warning("KNOWLEDGE_API_EXTRA_BODY is not valid JSON; ignoring.")
+            r = s.post(
+                KNOWLEDGE_API_SEARCH_URL,
+                headers=_knowledge_api_headers(),
+                json=body,
+                timeout=KNOWLEDGE_API_TIMEOUT,
+            )
+        if r.status_code >= 400:
+            logging.warning("Knowledge API HTTP %s: %s", r.status_code, (r.text or "")[:800])
+            return None
+        try:
+            return r.json()
+        except Exception:
+            t = (r.text or "").strip()
+            return {"_single_text": t} if t else None
+    except Exception as e:
+        logging.warning("Knowledge API request failed: %s", e)
+        return None
+
+
+def _kb_extract_text_from_item(item: Any) -> Tuple[str, Dict[str, Any]]:
+    meta: Dict[str, Any] = {}
+    if item is None:
+        return "", meta
+    if isinstance(item, str):
+        return item.strip(), meta
+    if not isinstance(item, dict):
+        return str(item).strip(), meta
+    text = ""
+    for k in ("content", "text", "body", "snippet", "chunk_text", "document", "answer", "passage"):
+        v = item.get(k)
+        if isinstance(v, str) and v.strip():
+            text = v.strip()
+            break
+    if not text:
+        title = item.get("title") or item.get("name") or ""
+        content = item.get("content") or item.get("text") or ""
+        if isinstance(title, str) and isinstance(content, str) and (str(title).strip() or str(content).strip()):
+            text = f"{str(title).strip()}\n{str(content).strip()}".strip()
+        else:
+            text = json.dumps(item, ensure_ascii=False)[:4000]
+    src = item.get("source") or item.get("document_id") or item.get("id") or item.get("url") or item.get("title")
+    meta["source"] = str(src)[:500] if src is not None else "knowledge_api"
+    ck = item.get("chunk")
+    if ck is None:
+        ck = item.get("index") or item.get("page")
+    meta["chunk"] = ck
+    return text, meta
+
+
+def _knowledge_api_parse_response(data: Any, max_items: int) -> Tuple[List[str], List[Dict[str, Any]]]:
+    if data is None:
+        return [], []
+    if isinstance(data, dict) and "_single_text" in data:
+        t = str(data["_single_text"]).strip()
+        if not t:
+            return [], []
+        return [t], [{"source": "knowledge_api", "chunk": 0}]
+    items: List[Any] = []
+    if isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        for key in ("results", "documents", "chunks", "hits", "items", "records", "matches", "context"):
+            val = data.get(key)
+            if isinstance(val, list):
+                items = val
+                break
+        if not items and isinstance(data.get("data"), dict):
+            inner = data["data"]
+            for key in ("results", "documents", "chunks", "hits", "items", "records"):
+                val = inner.get(key)
+                if isinstance(val, list):
+                    items = val
+                    break
+        if not items and isinstance(data.get("answer"), str) and data["answer"].strip():
+            items = [{"content": data["answer"]}]
+    docs: List[str] = []
+    metas: List[Dict[str, Any]] = []
+    cap = max(1, min(20, max_items))
+    for i, it in enumerate(items[:cap]):
+        text, m = _kb_extract_text_from_item(it)
+        if not text:
+            continue
+        if m.get("chunk") is None:
+            m["chunk"] = i
+        docs.append(text)
+        metas.append(m)
+    return docs, metas
+
+
+def _retrieve_documents(question: str, top_k: int) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """Vector store (Chroma) or external Knowledge API, depending on RAG_CONTEXT_SOURCE."""
+    qprev = (question[:120] + "…") if len(question) > 120 else question
+    if RAG_CONTEXT_SOURCE == "knowledge_api":
+        url_disp = KNOWLEDGE_API_SEARCH_URL or "(not set)"
+        if len(url_disp) > 96:
+            url_disp = url_disp[:96] + "…"
+        _rag_log.info(
+            "RAG retrieval: source=KNOWLEDGE_API | top_k=%s | url=%s | question_preview=%r",
+            top_k,
+            url_disp,
+            qprev,
+        )
+        raw = _knowledge_api_request(question, top_k)
+        docs, metas = _knowledge_api_parse_response(raw, top_k)
+        _rag_log.info(
+            "RAG retrieval: KNOWLEDGE_API returned %s chunk(s) (raw_response=%s)",
+            len(docs),
+            "ok" if raw is not None else "none/error",
+        )
+        return docs, metas
+    _rag_log.info(
+        "RAG retrieval: source=CHROMADB_PDFS | top_k=%s | question_preview=%r",
+        top_k,
+        qprev,
+    )
+    results = collection.query(query_texts=[question], n_results=top_k)
+    docs = (results.get("documents") or [[]])[0]
+    metas = (results.get("metadatas") or [[]])[0]
+    _rag_log.info("RAG retrieval: CHROMADB_PDFS returned %s chunk(s)", len(docs))
+    return docs, metas
+
+
 def _rag_answer(
     question: str,
     top_k: int = 4,
     model: Optional[str] = None,
     prompt_for_llm: Optional[str] = None,
 ) -> tuple[str, list[str]]:
-    """Run RAG: query Chroma, build context, call LLM. Returns (answer, context_preview).
+    """Run RAG: retrieve context (Chroma or Knowledge API), build context, call LLM. Returns (answer, context_preview).
     model: optional request model; if it contains 'claude', use Claude API; else Ollama or remote.
     prompt_for_llm: when set (e.g. full conversation from .NET), the LLM sees this so it can resolve
     references like 'the same answer in English'; retrieval still uses question."""
     top_k = max(1, min(10, top_k))
-    results = collection.query(query_texts=[question], n_results=top_k)
+    if RAG_CONTEXT_SOURCE == "knowledge_api" and not KNOWLEDGE_API_SEARCH_URL:
+        return (
+            "Knowledge API mode is on but KNOWLEDGE_API_SEARCH_URL is not set. Add it to rag_backend/.env — see docs/KNOWLEDGE-API-RAG.md.",
+            [],
+        )
 
-    docs = (results.get("documents") or [[]])[0]
-    metas = (results.get("metadatas") or [[]])[0]
+    docs, metas = _retrieve_documents(question, top_k)
 
     if not docs:
-        return "No relevant context found in indexed PDFs.", []
+        empty = (
+            "No relevant context returned from the knowledge API."
+            if RAG_CONTEXT_SOURCE == "knowledge_api"
+            else "No relevant context found in indexed PDFs."
+        )
+        return empty, []
 
     previews = []
     for d, m in zip(docs, metas):
@@ -351,7 +573,6 @@ def _rag_answer(
             ]
             answer = call_local_ollama(messages)
     except Exception as e:
-        import logging
         logging.warning("RAG LLM call failed: %s", e)
         # Still return previews so the UI can show "references" even when the LLM step failed
         return (
@@ -378,7 +599,6 @@ def _rag_answer(
             # Return empty previews so the UI doesn't show RAG references for this general answer
             return answer, []
         except Exception as e:
-            import logging
             logging.warning("Claude fallback (general knowledge) failed: %s", e)
             # Keep the original "not found" answer
             return answer, previews
@@ -401,6 +621,9 @@ def health():
         "llm_mode": mode,
         "model": model,
         "docs_indexed": count,
+        "rag_context_source": RAG_CONTEXT_SOURCE,
+        "retrieval_source": _retrieval_source_label(),
+        "knowledge_api_url_configured": bool(KNOWLEDGE_API_SEARCH_URL),
     }
 
 
@@ -439,7 +662,11 @@ def ingest(req: IngestReq):
 def ask(req: AskReq):
     """Trauma-safe RAG answer engine (NO forced ABCDE format)."""
     answer, previews = _rag_answer(req.question, req.top_k)
-    return {"answer": answer, "context_preview": previews}
+    return {
+        "answer": answer,
+        "context_preview": previews,
+        "retrieval_source": _retrieval_source_label(),
+    }
 
     # --- ORIGINAL /api/ask INLINE IMPLEMENTATION (commented out so we can revert if needed) ---
     # top_k = max(1, min(10, req.top_k))
@@ -518,6 +745,7 @@ def chat_completions(req: OpenAIChatRequest):
                 }
             ],
             "context_preview": [],
+            "retrieval_source": _retrieval_source_label(),
         }
 
     # Use only the current question for retrieval so we get PDF chunks about the topic, not the conversation
@@ -539,5 +767,6 @@ def chat_completions(req: OpenAIChatRequest):
         ],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         "context_preview": previews,
+        "retrieval_source": _retrieval_source_label(),
     }
 

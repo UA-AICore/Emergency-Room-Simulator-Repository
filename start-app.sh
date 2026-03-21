@@ -20,6 +20,12 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
+# Knowledge Base API: export env from ERSimulatorApp appsettings (same source as .NET RAG:BaseUrl)
+# so uvicorn sees KNOWLEDGE_* / RAG_CONTEXT_SOURCE without duplicating rag_backend/.env.
+if [ -f "$REPO_ROOT/rag_backend/sync_kb_env_from_appsettings.py" ]; then
+  eval "$(python3 "$REPO_ROOT/rag_backend/sync_kb_env_from_appsettings.py" "$REPO_ROOT")" || true
+fi
+
 # Check if port 8010 is already in use (e.g. from a previous run)
 if command -v ss >/dev/null 2>&1; then
   PORT_IN_USE=$(ss -tlnp 2>/dev/null | grep -c ':8010 ' || true)
@@ -45,8 +51,23 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
   fi
   sleep 1
 done
-echo "Running ingest (data/trauma_pdfs)..."
-curl -s -X POST http://127.0.0.1:8010/ingest -H "Content-Type: application/json" -d '{"folder": "data/trauma_pdfs"}' || true
+# Preserve SKIP_PDF_INGEST if sync_kb_env_from_appsettings already exported it
+SKIP_PDF_INGEST="${SKIP_PDF_INGEST:-0}"
+if [ "${RAG_CONTEXT_SOURCE:-}" = "knowledge_api" ]; then
+  SKIP_PDF_INGEST=1
+fi
+if [ -f rag_backend/.env ] && grep -q '^RAG_CONTEXT_SOURCE=knowledge_api' rag_backend/.env 2>/dev/null; then
+  SKIP_PDF_INGEST=1
+fi
+if [ -f rag_backend/.env ] && grep -q '^SKIP_PDF_INGEST=1' rag_backend/.env 2>/dev/null; then
+  SKIP_PDF_INGEST=1
+fi
+if [ "$SKIP_PDF_INGEST" = "1" ]; then
+  echo "Skipping PDF ingest (Knowledge API mode: RAG_CONTEXT_SOURCE=knowledge_api from appsettings/.env, or SKIP_PDF_INGEST=1)."
+else
+  echo "Running ingest (data/trauma_pdfs)..."
+  curl -s -X POST http://127.0.0.1:8010/ingest -H "Content-Type: application/json" -d '{"folder": "data/trauma_pdfs"}' || true
+fi
 echo ""
 if [ "$PROFILE" = "ServerHttps" ]; then
   echo "Starting .NET app as HTTPS site (profile: ServerHttps)..."
