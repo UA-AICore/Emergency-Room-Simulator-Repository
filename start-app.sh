@@ -1,12 +1,145 @@
 #!/usr/bin/env bash
 # Start RAG backend, run ingest, then start the .NET app in one terminal.
-# Usage: ./start-app.sh [Server|ServerHttps]
-#   Server     = HTTP only (http://YOUR_IP:8081), no voice input
-#   ServerHttps = HTTPS (https://YOUR_IP:8443), voice input works (default)
+#
+# Interactive (foreground; stops when you Ctrl+C or close the terminal):
+#   ./start-app.sh [Server|ServerHttps]
+#   Server        = HTTP only (http://YOUR_IP:8081), no voice input
+#   ServerHttps   = HTTPS (https://YOUR_IP:8443), voice input works (default)
+#
+# Perpetual (Linux systemd — survives SSH disconnect & restarts on crash):
+#   ./start-app.sh systemd-install [Server|ServerHttps]   # writes units to /tmp, prints sudo cp + enable
+#   ./start-app.sh systemd-restart                        # after code changes
+#   ./start-app.sh perpetual                              # alias: restart + status
+#   ./start-app.sh systemd-status | systemd-stop | systemd-logs
+#
 # The same launch command is used whether you use a self-signed or Let's Encrypt cert; only appsettings cert paths differ.
 set -e
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
+
+# ----- systemd / perpetual (Linux) -----
+codira_service_user() {
+  if [ -n "${SUDO_USER:-}" ]; then
+    echo "$SUDO_USER"
+  else
+    echo "${USER:-$(id -un)}"
+  fi
+}
+
+codira_systemd_install() {
+  local profile="${1:-ServerHttps}"
+  if [ "$profile" != "Server" ] && [ "$profile" != "ServerHttps" ]; then
+    echo "Invalid launch profile: $profile (use Server or ServerHttps)" >&2
+    exit 1
+  fi
+  local svc_user
+  svc_user="$(codira_service_user)"
+  if [ -z "$svc_user" ] || [ "$svc_user" = "root" ]; then
+    echo "Run systemd-install as your deploy user (not root) so User= in units is correct." >&2
+    exit 1
+  fi
+  chmod +x "$REPO_ROOT/scripts/perpetual-rag.sh" "$REPO_ROOT/scripts/perpetual-app.sh" 2>/dev/null || true
+  local TMP
+  TMP="$(mktemp -d "${TMPDIR:-/tmp}/codira-systemd-XXXXXX")"
+  cat >"$TMP/codira-rag.service" <<UNIT
+[Unit]
+Description=CoDIRA RAG backend (FastAPI / uvicorn on 8010)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${svc_user}
+Group=${svc_user}
+ExecStart=${REPO_ROOT}/scripts/perpetual-rag.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  cat >"$TMP/codira-app.service" <<UNIT
+[Unit]
+Description=CoDIRA ER Simulator (.NET / Kestrel)
+After=network-online.target codira-rag.service
+Wants=codira-rag.service
+
+[Service]
+Type=simple
+User=${svc_user}
+Group=${svc_user}
+Environment=CODIRA_LAUNCH_PROFILE=${profile}
+Environment=ASPNETCORE_ENVIRONMENT=Production
+ExecStart=${REPO_ROOT}/scripts/perpetual-app.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  echo "Generated units in $TMP"
+  echo "--- codira-rag.service ---"
+  cat "$TMP/codira-rag.service"
+  echo "--- codira-app.service ---"
+  cat "$TMP/codira-app.service"
+  echo ""
+  echo "Install with:"
+  echo "  sudo cp \"$TMP/codira-rag.service\" \"$TMP/codira-app.service\" /etc/systemd/system/"
+  echo "  sudo systemctl daemon-reload"
+  echo "  sudo systemctl enable --now codira-rag codira-app"
+  echo ""
+  echo "After code changes:"
+  echo "  ./start-app.sh systemd-restart"
+  echo ""
+  echo "Stop using interactive ./start-app.sh on the same machine (port conflicts)."
+}
+
+codira_need_systemctl() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "systemctl not found — perpetual mode needs Linux with systemd." >&2
+    exit 1
+  fi
+}
+
+FIRST="${1:-}"
+case "$FIRST" in
+  systemd-install|install-systemd)
+    shift
+    PROFILE="${1:-ServerHttps}"
+    codira_systemd_install "$PROFILE"
+    exit 0
+    ;;
+  systemd-restart|restart-systemd)
+    codira_need_systemctl
+    sudo systemctl restart codira-rag codira-app
+    systemctl status codira-rag codira-app --no-pager || true
+    exit 0
+    ;;
+  perpetual)
+    codira_need_systemctl
+    echo "Restarting codira-rag + codira-app (systemd)..."
+    sudo systemctl restart codira-rag codira-app
+    systemctl status codira-rag codira-app --no-pager || true
+    exit 0
+    ;;
+  systemd-stop|stop-systemd)
+    codira_need_systemctl
+    sudo systemctl stop codira-app codira-rag
+    exit 0
+    ;;
+  systemd-status|status-systemd)
+    codira_need_systemctl
+    systemctl status codira-rag codira-app --no-pager || true
+    exit 0
+    ;;
+  systemd-logs|logs-systemd)
+    codira_need_systemctl
+    journalctl -u codira-rag -u codira-app -n 80 --no-pager
+    exit 0
+    ;;
+esac
+
+# ----- interactive foreground run -----
 PROFILE="${1:-ServerHttps}"
 RAG_PID=""
 cleanup() {
