@@ -87,6 +87,9 @@ __pycache__/
 venv/
 .venv/
 
+# ===== Deploy / systemd helpers (machine-local; optional on dev clones) =====
+deploy/
+
 # ===== Local / machine-specific docs =====
 ERSimulatorApp/RAG-CONNECTIVITY.md
 SETUP-LOCAL.md
