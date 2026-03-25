@@ -61,7 +61,16 @@ builder.Services.AddSingleton<ICustomGPTService>(sp =>
 
 builder.Services.AddHttpClient<QuizService>();
 
-// Register HeyGen Streaming service (real or stub when not configured)
+// Avatar streaming: LiveAvatar LITE when enabled + configured, else HeyGen, else stub
+var useLiveAvatar = builder.Configuration.GetValue<bool>("UseLiveAvatar");
+var liveAvatarKey = (builder.Configuration["LiveAvatar:ApiKey"] ?? Environment.GetEnvironmentVariable("LIVEAVATAR_API_KEY") ?? "").Trim();
+var liveAvatarId = (builder.Configuration["LiveAvatar:AvatarId"] ?? "").Trim();
+var liveAvatarReady = useLiveAvatar
+    && !string.IsNullOrWhiteSpace(liveAvatarKey)
+    && !liveAvatarKey.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase)
+    && !liveAvatarKey.StartsWith("PASTE_", StringComparison.OrdinalIgnoreCase)
+    && Guid.TryParse(liveAvatarId, out _);
+
 var heyGenApiKey = (builder.Configuration["HeyGen:ApiKey"] ?? "").Trim();
 var heyGenAvatarId = (builder.Configuration["HeyGen:AvatarId"] ?? "").Trim();
 bool isHeyGenPlaceholder = string.IsNullOrWhiteSpace(heyGenApiKey) || string.IsNullOrWhiteSpace(heyGenAvatarId)
@@ -71,16 +80,25 @@ bool isHeyGenPlaceholder = string.IsNullOrWhiteSpace(heyGenApiKey) || string.IsN
     || heyGenAvatarId.StartsWith("your-heygen", StringComparison.OrdinalIgnoreCase);
 
 var heyGenTimeout = builder.Configuration.GetValue<int?>("HeyGen:TimeoutSeconds") ?? 120;
-if (isHeyGenPlaceholder)
+var liveAvatarTimeout = builder.Configuration.GetValue<int?>("LiveAvatar:TimeoutSeconds") ?? heyGenTimeout;
+
+if (liveAvatarReady)
 {
-    builder.Services.AddSingleton<IHeyGenStreamingService, HeyGenStreamingServiceStub>();
+    builder.Services.AddHttpClient<IHeyGenStreamingService, LiveAvatarStreamingService>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(liveAvatarTimeout);
+    });
 }
-else
+else if (!isHeyGenPlaceholder)
 {
     builder.Services.AddHttpClient<IHeyGenStreamingService, HeyGenStreamingService>(client =>
     {
         client.Timeout = TimeSpan.FromSeconds(heyGenTimeout);
     });
+}
+else
+{
+    builder.Services.AddSingleton<IHeyGenStreamingService, HeyGenStreamingServiceStub>();
 }
 
 // Register HeyGen Video Proxy service (for asynchronous video generation)
@@ -109,10 +127,20 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Log which HeyGen config was loaded (no secrets; helps debug stub vs real)
 var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
-var avatarMask = string.IsNullOrEmpty(heyGenAvatarId) ? "(empty)" : (heyGenAvatarId.Length <= 12 ? heyGenAvatarId : heyGenAvatarId.Substring(0, 12) + "...");
-startupLogger.LogInformation("HeyGen: {Mode}, AvatarId: {AvatarId}", isHeyGenPlaceholder ? "stub (not configured)" : "real", avatarMask);
+if (liveAvatarReady)
+{
+    var laMask = liveAvatarId.Length <= 12 ? liveAvatarId : liveAvatarId.Substring(0, 12) + "...";
+    startupLogger.LogInformation("Avatar streaming: LiveAvatar LITE, AvatarId: {AvatarId}", laMask);
+}
+else
+{
+    if (useLiveAvatar && !liveAvatarReady)
+        startupLogger.LogWarning("UseLiveAvatar is true but LiveAvatar:ApiKey / LiveAvatar:AvatarId (UUID) invalid or missing; using HeyGen or stub.");
+    var avatarMask = string.IsNullOrEmpty(heyGenAvatarId) ? "(empty)" : (heyGenAvatarId.Length <= 12 ? heyGenAvatarId : heyGenAvatarId.Substring(0, 12) + "...");
+    startupLogger.LogInformation("Avatar streaming: {Mode}, HeyGen AvatarId: {AvatarId}",
+        isHeyGenPlaceholder ? "stub (not configured)" : "HeyGen", avatarMask);
+}
 
 // Use forwarded headers middleware (must be early in pipeline)
 app.UseForwardedHeaders();

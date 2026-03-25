@@ -131,6 +131,7 @@
     let liveKitRoom = null;
     let sessionData = null;
     let streamingToken = null; // Cache the token used to create the session
+    let deliversSpeechViaServer = true;
     let isSessionActive = false;
     let keepaliveIntervalId = null;
     
@@ -242,6 +243,29 @@
     // ============================================
     // Utility Functions
     // ============================================
+    const LIVEAVATAR_AGENT_TOPIC = 'agent-control';
+
+    function publishLiveAvatarSpeakText(text) {
+        if (!text || !liveKitRoom || !liveKitRoom.localParticipant) {
+            console.warn('[LiveAvatar] skip speak_text: no room or empty text');
+            return;
+        }
+        const LiveKit = window.LivekitClient;
+        if (!LiveKit) return;
+        const eventId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('evt-' + Date.now());
+        const payload = { event_id: eventId, event_type: 'avatar.speak_text', text: text };
+        const data = new TextEncoder().encode(JSON.stringify(payload));
+        liveKitRoom.localParticipant.publishData(data, { reliable: true, topic: LIVEAVATAR_AGENT_TOPIC })
+            .then(function() { console.log('[LiveAvatar] speak_text published, chars:', text.length); })
+            .catch(function(err) { console.error('[LiveAvatar] publishData failed:', err); });
+    }
+
+    function maybeSpeakAvatarResponse(response) {
+        if (deliversSpeechViaServer) return;
+        var toSpeak = response && (response.speechForAvatar || response.transcript || response.avatarTranscript);
+        if (toSpeak) publishLiveAvatarSpeakText(toSpeak);
+    }
+
     function escapeHtml(text) {
         const div = document.createElement('div');
         div.textContent = text;
@@ -480,6 +504,7 @@
                             sessionData = null;
                             liveKitRoom = null;
                             streamingToken = null;
+                            deliversSpeechViaServer = true;
                             elements.messageInput.disabled = true;
                             elements.sendButton.disabled = true;
                             elements.recordButton.disabled = true;
@@ -668,7 +693,9 @@
                 hasStreamingToken: !!sessionResponse.streamingToken
             });
             sessionData = sessionResponse;
-            streamingToken = sessionResponse.streamingToken; // Cache the token for reuse
+            streamingToken = sessionResponse.streamingToken;
+            deliversSpeechViaServer = sessionResponse.deliversSpeechViaServer !== false;
+            console.log('[SESSION] deliversSpeechViaServer:', deliversSpeechViaServer, 'provider:', sessionResponse.avatarProvider);
             elements.sessionIdDisplay.textContent = sessionResponse.sessionId.substring(0, 8) + '...';
 
             showLoading('Connecting to avatar...');
@@ -691,6 +718,7 @@
                 if (greetingResponse.transcript) {
                     addMessage('Avatar', greetingResponse.transcript);
                 }
+                maybeSpeakAvatarResponse(greetingResponse);
                 if (greetingResponse.sources) {
                     updateSources(greetingResponse.sources, greetingResponse.isFallback);
                 }
@@ -733,6 +761,7 @@
             // Reset state
             sessionData = null;
             streamingToken = null;
+            deliversSpeechViaServer = true;
         }
     }
 
@@ -767,7 +796,8 @@
             elements.sessionIdDisplay.textContent = '-';
             updateStatus('Ready', 'secondary');
             sessionData = null;
-            streamingToken = null; // Clear cached token
+            streamingToken = null;
+            deliversSpeechViaServer = true;
             addMessage('System', 'Session stopped.', false);
             
             // Stop any active recording
@@ -823,6 +853,7 @@
             if (response.transcript) {
                 addMessage('Avatar', response.transcript);
             }
+            maybeSpeakAvatarResponse(response);
             if (response.sessionExpired && liveKitRoom) {
                 try { liveKitRoom.disconnect(); } catch (e) { console.warn('Disconnect on session expired:', e); }
                 liveKitRoom = null;
@@ -1143,6 +1174,7 @@
             if (data.avatarTranscript) {
                 addMessage('Avatar', data.avatarTranscript);
             }
+            maybeSpeakAvatarResponse(data);
 
             // Update sources
             if (data.sources) {

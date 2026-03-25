@@ -10,6 +10,9 @@ namespace ERSimulatorApp.Services
     /// </summary>
     public interface IHeyGenStreamingService
     {
+        /// <summary>False for LiveAvatar LITE — browser sends <c>avatar.speak_text</c> over LiveKit.</summary>
+        bool DeliversSpeechViaServer { get; }
+
         Task<string> GetStreamingTokenAsync();
         Task<HeyGenStreamingSessionData> CreateStreamingSessionAsync();
         Task StartStreamingSessionAsync(string sessionId, string? streamingToken = null);
@@ -19,6 +22,8 @@ namespace ERSimulatorApp.Services
 
     public class HeyGenStreamingService : IHeyGenStreamingService
     {
+        public bool DeliversSpeechViaServer => true;
+
         private readonly HttpClient _httpClient;
         private readonly ILogger<HeyGenStreamingService> _logger;
         private readonly string _apiKey;
@@ -173,7 +178,8 @@ namespace ERSimulatorApp.Services
                     SessionId = sessionId,
                     Url = url,
                     AccessToken = accessToken,
-                    StreamingToken = token // Cache the token used to create the session
+                    StreamingToken = token,
+                    Provider = "heygen"
                 };
 
                 _logger.LogInformation("HeyGen streaming session created successfully: {SessionId}", result.SessionId);

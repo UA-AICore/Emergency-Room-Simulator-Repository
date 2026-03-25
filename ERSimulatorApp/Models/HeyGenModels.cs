@@ -128,6 +128,10 @@ namespace ERSimulatorApp.Models
         /// This token should be reused for all streaming.task calls for this session.
         /// </summary>
         public string StreamingToken { get; set; } = string.Empty;
+
+        public string? WsUrl { get; set; }
+
+        public string Provider { get; set; } = "heygen";
     }
 
     public class HeyGenVoiceConfig

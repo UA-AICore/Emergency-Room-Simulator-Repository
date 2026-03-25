@@ -8,6 +8,8 @@ namespace ERSimulatorApp.Services
     /// </summary>
     public class HeyGenStreamingServiceStub : IHeyGenStreamingService
     {
+        public bool DeliversSpeechViaServer => true;
+
         private readonly ILogger<HeyGenStreamingServiceStub> _logger;
         private const string Message = "HeyGen is not configured. Set HeyGen:ApiKey and HeyGen:AvatarId in appsettings.Development.json (or appsettings.json) with your HeyGen credentials. Use appsettings.Development.Example.json as a template.";
 

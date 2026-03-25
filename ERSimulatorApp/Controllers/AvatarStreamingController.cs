@@ -54,8 +54,8 @@ namespace ERSimulatorApp.Controllers
                 _logger.LogWarning("Source documents path does not exist: {SourcePath}", _sourceDocumentsPath);
             }
 
-            // Cap text sent to HeyGen to reduce mid-sentence disconnects (long TTS can hit timeouts/limits)
-            _maxSpeechChars = configuration.GetValue("HeyGen:MaxSpeechChars", 1200);
+            _maxSpeechChars = configuration.GetValue<int?>("LiveAvatar:MaxSpeechChars")
+                ?? configuration.GetValue("HeyGen:MaxSpeechChars", 1200);
         }
 
         /// <summary>Per-session conversation history for Dr. Dexter (student questions + his answers).</summary>
@@ -110,7 +110,8 @@ namespace ERSimulatorApp.Controllers
         {
             try
             {
-                _logger.LogInformation("Creating new HeyGen streaming session");
+                _logger.LogInformation("Creating streaming session (server speech: {Server})",
+                    _heyGenService.DeliversSpeechViaServer);
 
                 var sessionData = await _heyGenService.CreateStreamingSessionAsync();
 
@@ -120,7 +121,10 @@ namespace ERSimulatorApp.Controllers
                     sessionId = sessionData.SessionId,
                     url = sessionData.Url,
                     accessToken = sessionData.AccessToken,
-                    streamingToken = sessionData.StreamingToken // Include token for reuse
+                    streamingToken = sessionData.StreamingToken,
+                    wsUrl = sessionData.WsUrl,
+                    avatarProvider = sessionData.Provider,
+                    deliversSpeechViaServer = _heyGenService.DeliversSpeechViaServer
                 });
             }
             catch (Exception ex)
@@ -380,14 +384,19 @@ namespace ERSimulatorApp.Controllers
                     if (textToSend.Length > textForAvatar.Length)
                         _logger.LogInformation("Truncated avatar speech from {Original} to {Truncated} chars to reduce mid-sentence disconnects", textToSend.Length, textForAvatar.Length);
 
-                    _logger.LogInformation("Step 3: Sending to HeyGen avatar (length: {Length} chars)", textForAvatar.Length);
-                    _logger.LogInformation("Text being sent to HeyGen (first 200 chars): {TextPreview}", 
-                        textForAvatar.Substring(0, Math.Min(200, textForAvatar.Length)));
-                    
-                    // CRITICAL: Only send the RAG response text - do NOT send user question or conversation history
-                    await _heyGenService.SendStreamingTaskAsync(conversationId, textForAvatar, streamingToken);
-                    
-                    _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textForAvatar.Length);
+                    if (_heyGenService.DeliversSpeechViaServer)
+                    {
+                        _logger.LogInformation("Step 3: Sending to HeyGen avatar (length: {Length} chars)", textForAvatar.Length);
+                        _logger.LogInformation("Text being sent to HeyGen (first 200 chars): {TextPreview}",
+                            textForAvatar.Substring(0, Math.Min(200, textForAvatar.Length)));
+                        await _heyGenService.SendStreamingTaskAsync(conversationId, textForAvatar, streamingToken);
+                        _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textForAvatar.Length);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("LiveAvatar LITE: browser will publish speak_text, length {Length}", textForAvatar.Length);
+                        await _heyGenService.SendStreamingTaskAsync(conversationId, textForAvatar, streamingToken);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -445,6 +454,7 @@ namespace ERSimulatorApp.Controllers
                     success = true,
                     userTranscript = transcript,
                     avatarTranscript = textToSend,
+                    speechForAvatar = !_heyGenService.DeliversSpeechViaServer ? TruncateForAvatar(textToSend) : null,
                     sources = sourceLinks.Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList(),
                     isFallback = ragResponse.IsFallback
                 });
@@ -582,12 +592,18 @@ namespace ERSimulatorApp.Controllers
                     if (textToSendTask.Length > textForAvatarTask.Length)
                         _logger.LogInformation("Truncated avatar speech from {Original} to {Truncated} chars to reduce mid-sentence disconnects", textToSendTask.Length, textForAvatarTask.Length);
 
-                    _logger.LogInformation("Sending to HeyGen (length: {Length} chars, IsFallback: {IsFallback})", 
-                        textForAvatarTask.Length, ragResponse.IsFallback);
-                    
-                    await _heyGenService.SendStreamingTaskAsync(request.ConversationId, textForAvatarTask, request.StreamingToken);
-                    
-                    _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textForAvatarTask.Length);
+                    if (_heyGenService.DeliversSpeechViaServer)
+                    {
+                        _logger.LogInformation("Sending to HeyGen (length: {Length} chars, IsFallback: {IsFallback})",
+                            textForAvatarTask.Length, ragResponse.IsFallback);
+                        await _heyGenService.SendStreamingTaskAsync(request.ConversationId, textForAvatarTask, request.StreamingToken);
+                        _logger.LogInformation("Successfully sent {Length} characters to HeyGen for avatar speech", textForAvatarTask.Length);
+                    }
+                    else
+                    {
+                        _logger.LogInformation("LiveAvatar LITE: browser speak_text, length {Length} chars", textForAvatarTask.Length);
+                        await _heyGenService.SendStreamingTaskAsync(request.ConversationId, textForAvatarTask, request.StreamingToken);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -612,6 +628,7 @@ namespace ERSimulatorApp.Controllers
                         {
                             success = true,
                             transcript = textToSendTask,
+                            speechForAvatar = !_heyGenService.DeliversSpeechViaServer ? TruncateForAvatar(textToSendTask) : null,
                             sources = links,
                             isFallback = ragResponse.IsFallback,
                             avatarDeliveryFailed = true,
@@ -624,6 +641,7 @@ namespace ERSimulatorApp.Controllers
                         error = "Failed to send message to avatar, but received response from knowledge base",
                         message = ex.Message,
                         transcript = textToSendTask,
+                        speechForAvatar = !_heyGenService.DeliversSpeechViaServer ? TruncateForAvatar(textToSendTask) : null,
                         sources = links,
                         isFallback = ragResponse.IsFallback
                     });
@@ -658,6 +676,7 @@ namespace ERSimulatorApp.Controllers
                 {
                     success = true,
                     transcript = textToSendTask,
+                    speechForAvatar = !_heyGenService.DeliversSpeechViaServer ? TruncateForAvatar(textToSendTask) : null,
                     sources = sourceLinks.Where(link => !string.IsNullOrWhiteSpace(link.Url)).ToList(),
                     isFallback = ragResponse.IsFallback
                 });
@@ -794,7 +813,7 @@ namespace ERSimulatorApp.Controllers
         }
 
         /// <summary>
-        /// Keep-alive: call HeyGen streaming.start for the session to reduce idle disconnects.
+        /// Keep-alive: HeyGen uses streaming.start; LiveAvatar uses POST /v1/sessions/keep-alive.
         /// Frontend should call this periodically (e.g. every 45s) while the session is active.
         /// </summary>
         [HttpPost("session/keepalive")]
