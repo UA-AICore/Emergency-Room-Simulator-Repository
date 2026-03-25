@@ -39,6 +39,7 @@ codira_systemd_install() {
     exit 1
   fi
   chmod +x "$REPO_ROOT/scripts/perpetual-rag.sh" "$REPO_ROOT/scripts/perpetual-app.sh" 2>/dev/null || true
+  chmod +x "$REPO_ROOT/deploy/scripts/start-rag-for-systemd.sh" "$REPO_ROOT/deploy/scripts/start-app-for-systemd.sh" 2>/dev/null || true
   local TMP
   TMP="$(mktemp -d "${TMPDIR:-/tmp}/codira-systemd-XXXXXX")"
   cat >"$TMP/codira-rag.service" <<UNIT

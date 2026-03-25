@@ -87,8 +87,11 @@ __pycache__/
 venv/
 .venv/
 
-# ===== Deploy / systemd helpers (machine-local; optional on dev clones) =====
-deploy/
+# ===== Deploy: ignore local junk; keep wrappers so old systemd ExecStart paths work =====
+deploy/**
+!deploy/scripts/
+!deploy/scripts/start-rag-for-systemd.sh
+!deploy/scripts/start-app-for-systemd.sh
 
 # ===== Local / machine-specific docs =====
 ERSimulatorApp/RAG-CONNECTIVITY.md
