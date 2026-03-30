@@ -549,6 +549,23 @@
     // ============================================
     // API Calls
     // ============================================
+    /** Parse response body as JSON after reading as text so plain-text .NET/proxy errors do not surface as JSON.parse noise. */
+    async function parseJsonBody(response, contextLabel) {
+        const text = await response.text();
+        if (!text.trim()) {
+            if (!response.ok) {
+                throw new Error(`${contextLabel}: HTTP ${response.status} (empty body)`);
+            }
+            throw new Error(`${contextLabel}: empty response`);
+        }
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            const preview = text.length > 400 ? text.slice(0, 400) + '…' : text;
+            throw new Error(`${contextLabel}: expected JSON (${response.status}): ${preview}`);
+        }
+    }
+
     async function createSession() {
         console.log('[API] Calling POST', `${API_BASE}/session/create`);
         const response = await fetch(`${API_BASE}/session/create`, {
@@ -558,13 +575,12 @@
 
         console.log('[API] session/create response status:', response.status, response.statusText);
 
+        const data = await parseJsonBody(response, 'session/create');
         if (!response.ok) {
-            const error = await response.json();
-            console.error('[API] session/create error:', error);
-            throw new Error(error.message || `HTTP ${response.status}`);
+            console.error('[API] session/create error:', data);
+            throw new Error(data.message || data.error || data.title || `HTTP ${response.status}`);
         }
 
-        const data = await response.json();
         console.log('[API] session/create success:', { 
             sessionId: data.sessionId?.substring(0, 8) + '...', 
             hasStreamingToken: !!data.streamingToken,

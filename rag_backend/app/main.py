@@ -23,7 +23,7 @@ from pypdf import PdfReader
 # ---------- Load environment ----------
 # Non-secret config (OLLAMA_URL, etc.) — can live in .env
 load_dotenv()
-# Untracked secrets: rag_backend/.env.secrets (in .gitignore). Create it with ANTHROPIC_API_KEY=...
+# Untracked secrets: rag_backend/.env.secrets (gitignored; copy from .env.secrets.example). ANTHROPIC_API_KEY=...
 _rag_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _env_secrets = os.path.join(_rag_root, ".env.secrets")
 if os.path.isfile(_env_secrets):
@@ -43,8 +43,8 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "meta-llama/Llama-3.2-1B-instruct")
 
 # Local Ollama (only when USE_REMOTE_LLM=0 and model is not claude)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma2")
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "180"))  # seconds; gemma2 can be slow
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "medgemma:7b")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "180"))  # seconds; medgemma:7b can be slow
 
 # Claude (Anthropic) — key from .env.secrets (untracked) or env
 # Model ID for Claude Opus 4.6: claude-opus-4-6 (see https://docs.anthropic.com/en/docs/about-claude/models)

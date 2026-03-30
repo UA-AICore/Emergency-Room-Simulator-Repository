@@ -20,6 +20,8 @@ namespace ERSimulatorApp.Services
         private readonly string? _apiKey;
         private readonly string _model;
         private readonly string _openAIBaseUrl;
+        /// <summary>True when Ollama or OpenAI is configured. Ctor does not throw so DI can build the graph when Personality:Enabled is false.</summary>
+        private readonly bool _configured;
 
         public CharacterGatewayService(
             HttpClient httpClient,
@@ -34,15 +36,20 @@ namespace ERSimulatorApp.Services
             _apiKey = configuration["OpenAI:ApiKey"]?.Trim();
             _model = configuration["OpenAI:Model"] ?? "gpt-4.1";
             _openAIBaseUrl = configuration["OpenAI:BaseUrl"]?.Trim() ?? "https://api.openai.com/v1/chat/completions";
-
-            if (!_useOllama && string.IsNullOrEmpty(_apiKey))
-                throw new InvalidOperationException("Either configure Ollama (Endpoint + Model) or OpenAI (ApiKey) for the personality layer.");
+            _configured = _useOllama || !string.IsNullOrEmpty(_apiKey);
         }
 
         public async Task<string> AddPersonalityAsync(string medicalResponse, string userQuery)
         {
             try
             {
+                if (!_configured)
+                {
+                    throw new InvalidOperationException(
+                        "Personality:Enabled requires Ollama (Endpoint + Model) or OpenAI:ApiKey in configuration. " +
+                        "Either add those values or set Personality:Enabled to false.");
+                }
+
                 _logger.LogInformation("Adding medical instructor personality to response");
 
                 // Validate inputs
