@@ -6,8 +6,9 @@ using System.Text.Json;
 namespace ERSimulatorApp.Services
 {
     /// <summary>
-    /// LiveAvatar API (LITE mode): session token + start → LiveKit. Verbatim speech is sent from the browser
-    /// via LiveKit <c>publishData</c> topic <c>agent-control</c> (<c>avatar.speak_text</c>).
+    /// LiveAvatar API (LITE mode): session token + start → LiveKit.
+    /// Per LiveAvatar LITE lifecycle docs, TTS audio is normally sent on the session <c>ws_url</c> as <c>agent.speak</c> (PCM 24 kHz);
+    /// alternatively the frontend may use LiveKit <c>publishData</c> <c>avatar.speak_text</c> on topic <c>agent-control</c>.
     /// </summary>
     public class LiveAvatarStreamingService : IHeyGenStreamingService
     {
@@ -182,6 +183,13 @@ namespace ERSimulatorApp.Services
                 },
                 ["is_sandbox"] = isSandbox
             };
+
+            var catalogVoice = (_configuration["LiveAvatar:CatalogVoiceId"] ?? "").Trim();
+            if (!string.IsNullOrEmpty(catalogVoice) && Guid.TryParse(catalogVoice, out _))
+            {
+                payload["voice_id"] = catalogVoice;
+                _logger.LogInformation("LiveAvatar sessions/token: including catalog voice_id");
+            }
 
             var json = JsonSerializer.Serialize(payload);
             using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/sessions/token");

@@ -43,8 +43,8 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "meta-llama/Llama-3.2-1B-instruct")
 
 # Local Ollama (only when USE_REMOTE_LLM=0 and model is not claude)
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "medgemma:7b")
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "180"))  # seconds; medgemma:7b can be slow
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "alibayram/medgemma:27b")
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "300"))  # seconds; 27B is slow locally
 
 # Claude (Anthropic) — key from .env.secrets (untracked) or env
 # Model ID for Claude Opus 4.6: claude-opus-4-6 (see https://docs.anthropic.com/en/docs/about-claude/models)

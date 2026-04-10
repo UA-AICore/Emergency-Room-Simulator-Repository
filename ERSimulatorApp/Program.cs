@@ -114,6 +114,21 @@ builder.Services.AddHttpClient<IElevenLabsSpeechToTextService, ElevenLabsSpeechT
     client.Timeout = TimeSpan.FromSeconds(elevenLabsTimeout);
 });
 
+// Text-to-speech (ElevenLabs API or Microsoft Edge read-aloud + ffmpeg); used by /api/avatar/v2/streaming/tts
+var ttsEngine = (builder.Configuration["ElevenLabs:TtsEngine"] ?? "ElevenLabs").Trim();
+if (string.Equals(ttsEngine, "MicrosoftEdgeFree", StringComparison.OrdinalIgnoreCase))
+{
+    builder.Services.AddSingleton<IElevenLabsTextToSpeechService, MicrosoftEdgeFreePcmTtsService>();
+}
+else
+{
+    var ttsTimeout = builder.Configuration.GetValue("ElevenLabs:TextToSpeechTimeoutSeconds", 120);
+    builder.Services.AddHttpClient<IElevenLabsTextToSpeechService, ElevenLabsTextToSpeechService>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(Math.Clamp(ttsTimeout, 10, 600));
+    });
+}
+
 // Add CORS for development
 builder.Services.AddCors(options =>
 {

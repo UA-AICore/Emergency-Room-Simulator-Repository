@@ -37,6 +37,7 @@
                 <div class="avatar-video-container position-relative">
                     <video id="avatarVideo" autoplay playsinline muted class="w-100" style="max-width: 800px; background: #000;" hidden></video>
                     <audio id="avatarAudio" autoplay volume="1.0"></audio>
+                    <audio id="ttsPlayback" playsinline hidden></audio>
                     <div id="placeholder" class="text-center p-5">
                         <i class="fas fa-video fa-4x mb-3 placeholder-icon"></i>
                         <h5>Ready to connect</h5>
@@ -132,6 +133,13 @@
     let sessionData = null;
     let streamingToken = null; // Cache the token used to create the session
     let deliversSpeechViaServer = true;
+    let useServerTtsForLiveAvatar = false;
+    let useLiveAvatarAgentSpeak = false;
+    let liveAvatarWs = null;
+    let liveAvatarWsReady = false;
+    let liveAvatarWsConnectPromise = null;
+    let liveAvatarWsDebugRxCount = 0;
+    let lastTtsObjectUrl = null;
     let isSessionActive = false;
     let keepaliveIntervalId = null;
     
@@ -245,6 +253,23 @@
     // ============================================
     const LIVEAVATAR_AGENT_TOPIC = 'agent-control';
 
+    /** Options for LiveAvatar agent data packets (topic + optional explicit agent destinations). */
+    function getLiveAvatarDataPublishOptions() {
+        const opts = { reliable: true, topic: LIVEAVATAR_AGENT_TOPIC };
+        if (!liveKitRoom || !liveKitRoom.remoteParticipants || liveKitRoom.remoteParticipants.size === 0)
+            return opts;
+        const ids = [];
+        liveKitRoom.remoteParticipants.forEach(function(p) {
+            if (p && p.identity) ids.push(p.identity);
+        });
+        if (ids.length > 0) opts.destinationIdentities = ids;
+        return opts;
+    }
+
+    /**
+     * LiveAvatar migration: repeat API -> avatar.speak_text event; interrupt -> avatar.interrupt.
+     * Use top-level "type" (matches WS events) plus event_type for compatibility; target remote agents explicitly.
+     */
     function publishLiveAvatarSpeakText(text) {
         if (!text || !liveKitRoom || !liveKitRoom.localParticipant) {
             console.warn('[LiveAvatar] skip speak_text: no room or empty text');
@@ -252,18 +277,264 @@
         }
         const LiveKit = window.LivekitClient;
         if (!LiveKit) return;
-        const eventId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('evt-' + Date.now());
-        const payload = { event_id: eventId, event_type: 'avatar.speak_text', text: text };
-        const data = new TextEncoder().encode(JSON.stringify(payload));
-        liveKitRoom.localParticipant.publishData(data, { reliable: true, topic: LIVEAVATAR_AGENT_TOPIC })
-            .then(function() { console.log('[LiveAvatar] speak_text published, chars:', text.length); })
-            .catch(function(err) { console.error('[LiveAvatar] publishData failed:', err); });
+
+        function runSpeakPipeline() {
+            const opts = getLiveAvatarDataPublishOptions();
+            const eventId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('evt-' + Date.now());
+            const interruptId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('int-' + Date.now());
+            const interruptBytes = new TextEncoder().encode(JSON.stringify({
+                type: 'avatar.interrupt',
+                event_type: 'avatar.interrupt',
+                event_id: interruptId
+            }));
+            const speakBytes = new TextEncoder().encode(JSON.stringify({
+                type: 'avatar.speak_text',
+                event_type: 'avatar.speak_text',
+                event_id: eventId,
+                text: text
+            }));
+            liveKitRoom.localParticipant.publishData(interruptBytes, opts)
+                .catch(function() { /* ignore */ })
+                .then(function() { return new Promise(function(r) { setTimeout(r, 120); }); })
+                .then(function() {
+                    return liveKitRoom.localParticipant.publishData(speakBytes, opts);
+                })
+                .then(function() {
+                    console.log('[LiveAvatar] speak_text published, chars:', text.length, 'destinations:', opts.destinationIdentities || '(broadcast)');
+                })
+                .catch(function(err) { console.error('[LiveAvatar] publishData failed:', err); });
+        }
+
+        if (!liveKitRoom.remoteParticipants || liveKitRoom.remoteParticipants.size === 0) {
+            console.warn('[LiveAvatar] no remote participants yet; deferring speak_text 450ms');
+            setTimeout(runSpeakPipeline, 450);
+            return;
+        }
+        runSpeakPipeline();
+    }
+
+    async function playServerTts(text) {
+        if (!text) return;
+        try {
+            const res = await fetch(`${API_BASE}/tts`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: text })
+            });
+            if (!res.ok) {
+                let detail = res.statusText;
+                try {
+                    const errJson = await res.json();
+                    if (errJson && errJson.error) detail = errJson.error;
+                } catch (e) { /* ignore */ }
+                console.error('[TTS] synthesize failed:', res.status, detail);
+                return;
+            }
+            const blob = await res.blob();
+            if (lastTtsObjectUrl) {
+                URL.revokeObjectURL(lastTtsObjectUrl);
+                lastTtsObjectUrl = null;
+            }
+            lastTtsObjectUrl = URL.createObjectURL(blob);
+            const el = document.getElementById('ttsPlayback');
+            if (!el) return;
+            el.onended = function() {
+                if (lastTtsObjectUrl) {
+                    URL.revokeObjectURL(lastTtsObjectUrl);
+                    lastTtsObjectUrl = null;
+                }
+                el.removeAttribute('src');
+            };
+            el.src = lastTtsObjectUrl;
+            el.muted = false;
+            const p = el.play();
+            if (p && typeof p.then === 'function') {
+                p.then(function() { console.log('[TTS] playback started'); })
+                    .catch(function(e) { console.warn('[TTS] play() blocked or failed:', e); });
+            }
+        } catch (e) {
+            console.error('[TTS] request error:', e);
+        }
+    }
+
+    function liveAvatarMessageIndicatesConnected(msg) {
+        if (!msg || typeof msg !== 'object') return false;
+        var st = msg.state;
+        if (st === 'connected' || st === 'CONNECTED') return true;
+        if (msg.data && (msg.data.state === 'connected' || msg.data.state === 'CONNECTED')) return true;
+        if (msg.payload && (msg.payload.state === 'connected' || msg.payload.state === 'CONNECTED')) return true;
+        if (msg.session && (msg.session.state === 'connected' || msg.session.state === 'CONNECTED')) return true;
+        var t = msg.type || msg.event_type || msg.event;
+        if (t === 'session.state_updated' && (st === 'connected' || st === 'CONNECTED')) return true;
+        return false;
+    }
+
+    function closeLiveAvatarWebSocket() {
+        liveAvatarWsReady = false;
+        liveAvatarWsConnectPromise = null;
+        liveAvatarWsDebugRxCount = 0;
+        if (liveAvatarWs) {
+            try {
+                liveAvatarWs.onclose = null;
+                liveAvatarWs.onmessage = null;
+                liveAvatarWs.onerror = null;
+                liveAvatarWs.close();
+            } catch (e) { /* ignore */ }
+            liveAvatarWs = null;
+        }
+    }
+
+    function ensureLiveAvatarWebSocket(wsUrl) {
+        if (!wsUrl) return Promise.reject(new Error('LiveAvatar ws_url missing'));
+        if (liveAvatarWs && liveAvatarWs.readyState === WebSocket.OPEN && liveAvatarWsReady)
+            return Promise.resolve();
+        if (liveAvatarWsConnectPromise) return liveAvatarWsConnectPromise;
+        liveAvatarWsConnectPromise = new Promise(function(resolve, reject) {
+            var settled = false;
+            var openFallbackTimer = null;
+            function doneOk() {
+                if (settled) return;
+                settled = true;
+                if (openFallbackTimer) clearTimeout(openFallbackTimer);
+                liveAvatarWsConnectPromise = null;
+                liveAvatarWsReady = true;
+                resolve();
+            }
+            function doneErr(err) {
+                if (settled) return;
+                settled = true;
+                if (openFallbackTimer) clearTimeout(openFallbackTimer);
+                liveAvatarWsConnectPromise = null;
+                liveAvatarWsReady = false;
+                reject(err);
+            }
+            try {
+                closeLiveAvatarWebSocket();
+                liveAvatarWs = new WebSocket(wsUrl);
+            } catch (e) {
+                doneErr(e);
+                return;
+            }
+            var timer = setTimeout(function() {
+                doneErr(new Error('LiveAvatar WebSocket: timed out waiting for ready signal'));
+            }, 30000);
+            liveAvatarWs.onopen = function() {
+                console.log('[LiveAvatar WS] open');
+                openFallbackTimer = setTimeout(function() {
+                    if (settled) return;
+                    if (liveAvatarWs && liveAvatarWs.readyState === WebSocket.OPEN) {
+                        clearTimeout(timer);
+                        console.warn('[LiveAvatar WS] no session.state_updated received; proceeding after open (API may not emit that event)');
+                        doneOk();
+                    }
+                }, 2500);
+            };
+            liveAvatarWs.onmessage = function(ev) {
+                try {
+                    var raw = typeof ev.data === 'string' ? ev.data : '';
+                    if (liveAvatarWsDebugRxCount < 6) {
+                        liveAvatarWsDebugRxCount++;
+                        console.log('[LiveAvatar WS] rx:', raw.length > 600 ? raw.slice(0, 600) + '…' : raw);
+                    }
+                    var msg = JSON.parse(raw);
+                    if (liveAvatarMessageIndicatesConnected(msg)) {
+                        clearTimeout(timer);
+                        doneOk();
+                    }
+                } catch (e) { /* non-json or other shape */ }
+            };
+            liveAvatarWs.onerror = function() {
+                clearTimeout(timer);
+                doneErr(new Error('LiveAvatar WebSocket error'));
+            };
+            liveAvatarWs.onclose = function() {
+                liveAvatarWsReady = false;
+                if (!settled) {
+                    clearTimeout(timer);
+                    doneErr(new Error('LiveAvatar WebSocket closed before ready'));
+                }
+            };
+        });
+        return liveAvatarWsConnectPromise;
+    }
+
+    function sendLiveAvatarWsKeepAlive() {
+        if (!useLiveAvatarAgentSpeak || !liveAvatarWs || liveAvatarWs.readyState !== WebSocket.OPEN) return;
+        try {
+            var eventId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('ka-' + Date.now());
+            liveAvatarWs.send(JSON.stringify({ type: 'session.keep_alive', event_id: eventId }));
+        } catch (e) { /* ignore */ }
+    }
+
+    function pcmBytesToBase64(u8) {
+        var binary = '';
+        var chunk = 0x8000;
+        for (var i = 0; i < u8.length; i += chunk) {
+            var sub = u8.subarray(i, Math.min(i + chunk, u8.length));
+            binary += String.fromCharCode.apply(null, sub);
+        }
+        return btoa(binary);
+    }
+
+    function sendLiveAvatarAgentInterrupt() {
+        if (!liveAvatarWs || liveAvatarWs.readyState !== WebSocket.OPEN) return;
+        try {
+            liveAvatarWs.send(JSON.stringify({ type: 'agent.interrupt' }));
+        } catch (e) { console.warn('[LiveAvatar WS] interrupt failed', e); }
+    }
+
+    async function streamLiveAvatarAgentSpeakFromServerTts(text) {
+        if (!text) return;
+        var wsUrl = sessionData && sessionData.wsUrl;
+        if (!wsUrl) {
+            console.warn('[LiveAvatar WS] no wsUrl; cannot agent.speak');
+            return;
+        }
+        await ensureLiveAvatarWebSocket(wsUrl);
+        var res = await fetch(API_BASE + '/tts?format=pcm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text })
+        });
+        if (!res.ok) {
+            var detail = res.statusText;
+            try { var j = await res.json(); if (j && j.error) detail = j.error; } catch (x) { /* */ }
+            console.error('[LiveAvatar WS] TTS pcm failed:', res.status, detail);
+            throw new Error(detail || 'TTS failed');
+        }
+        var buf = await res.arrayBuffer();
+        var pcm = new Uint8Array(buf);
+        if (pcm.length === 0) return;
+        sendLiveAvatarAgentInterrupt();
+        var eventId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('evt-' + Date.now());
+        var chunkBytes = 24000 * 2;
+        for (var off = 0; off < pcm.length; off += chunkBytes) {
+            if (!liveAvatarWs || liveAvatarWs.readyState !== WebSocket.OPEN) break;
+            var slice = pcm.subarray(off, Math.min(off + chunkBytes, pcm.length));
+            var payload = { type: 'agent.speak', event_id: eventId, audio: pcmBytesToBase64(slice) };
+            liveAvatarWs.send(JSON.stringify(payload));
+            await new Promise(function(r) { setTimeout(r, 0); });
+        }
+        if (liveAvatarWs && liveAvatarWs.readyState === WebSocket.OPEN) {
+            liveAvatarWs.send(JSON.stringify({ type: 'agent.speak_end', event_id: eventId }));
+        }
+        console.log('[LiveAvatar WS] agent.speak sent, pcm bytes:', pcm.length);
     }
 
     function maybeSpeakAvatarResponse(response) {
         if (deliversSpeechViaServer) return;
         var toSpeak = response && (response.speechForAvatar || response.transcript || response.avatarTranscript);
-        if (toSpeak) publishLiveAvatarSpeakText(toSpeak);
+        if (!toSpeak) return;
+        if (useLiveAvatarAgentSpeak) {
+            streamLiveAvatarAgentSpeakFromServerTts(toSpeak).catch(function(err) {
+                console.warn('[LiveAvatar WS] falling back to speak_text:', err);
+                publishLiveAvatarSpeakText(toSpeak);
+            });
+        } else if (useServerTtsForLiveAvatar) {
+            playServerTts(toSpeak);
+        } else {
+            publishLiveAvatarSpeakText(toSpeak);
+        }
     }
 
     function escapeHtml(text) {
@@ -505,6 +776,18 @@
                             liveKitRoom = null;
                             streamingToken = null;
                             deliversSpeechViaServer = true;
+                            useServerTtsForLiveAvatar = false;
+                            useLiveAvatarAgentSpeak = false;
+                            closeLiveAvatarWebSocket();
+                            if (lastTtsObjectUrl) {
+                                URL.revokeObjectURL(lastTtsObjectUrl);
+                                lastTtsObjectUrl = null;
+                            }
+                            var ttsElDc = document.getElementById('ttsPlayback');
+                            if (ttsElDc) {
+                                ttsElDc.pause();
+                                ttsElDc.removeAttribute('src');
+                            }
                             elements.messageInput.disabled = true;
                             elements.sendButton.disabled = true;
                             elements.recordButton.disabled = true;
@@ -665,6 +948,7 @@
 
     async function sendKeepalive() {
         if (!sessionData?.sessionId || !streamingToken || !isSessionActive) return;
+        sendLiveAvatarWsKeepAlive();
         try {
             const res = await fetch(`${API_BASE}/session/keepalive`, {
                 method: 'POST',
@@ -711,7 +995,10 @@
             sessionData = sessionResponse;
             streamingToken = sessionResponse.streamingToken;
             deliversSpeechViaServer = sessionResponse.deliversSpeechViaServer !== false;
-            console.log('[SESSION] deliversSpeechViaServer:', deliversSpeechViaServer, 'provider:', sessionResponse.avatarProvider);
+            useServerTtsForLiveAvatar = !!(sessionResponse.useServerTtsForLiveAvatar) && deliversSpeechViaServer === false;
+            useLiveAvatarAgentSpeak = !!(sessionResponse.useLiveAvatarAgentSpeak) && deliversSpeechViaServer === false;
+            if (useLiveAvatarAgentSpeak) useServerTtsForLiveAvatar = false;
+            console.log('[SESSION] deliversSpeechViaServer:', deliversSpeechViaServer, 'useLiveAvatarAgentSpeak:', useLiveAvatarAgentSpeak, 'useServerTtsForLiveAvatar:', useServerTtsForLiveAvatar, 'provider:', sessionResponse.avatarProvider);
             elements.sessionIdDisplay.textContent = sessionResponse.sessionId.substring(0, 8) + '...';
 
             showLoading('Connecting to avatar...');
@@ -719,6 +1006,16 @@
 
             // Step 2: Connect to LiveKit
             liveKitRoom = await connectToLiveKit(sessionResponse.url, sessionResponse.accessToken);
+
+            if (useLiveAvatarAgentSpeak && sessionResponse.wsUrl) {
+                try {
+                    await ensureLiveAvatarWebSocket(sessionResponse.wsUrl);
+                    console.log('[LiveAvatar WS] session.state_updated connected; ready for agent.speak');
+                } catch (wsErr) {
+                    console.warn('[LiveAvatar WS] connect failed; using speak_text instead:', wsErr);
+                    useLiveAvatarAgentSpeak = false;
+                }
+            }
 
             // Step 3: Send initial greeting to make avatar animate
             // Note: Avatar will remain static/idle until it receives a task
@@ -778,6 +1075,9 @@
             sessionData = null;
             streamingToken = null;
             deliversSpeechViaServer = true;
+            useServerTtsForLiveAvatar = false;
+            useLiveAvatarAgentSpeak = false;
+            closeLiveAvatarWebSocket();
         }
     }
 
@@ -786,6 +1086,8 @@
             elements.stopButton.disabled = true;
             updateStatus('Stopping...', 'warning');
             stopKeepalive();
+            closeLiveAvatarWebSocket();
+            useLiveAvatarAgentSpeak = false;
 
             if (sessionData) {
                 await stopSession(sessionData.sessionId);
@@ -814,6 +1116,16 @@
             sessionData = null;
             streamingToken = null;
             deliversSpeechViaServer = true;
+            useServerTtsForLiveAvatar = false;
+            if (lastTtsObjectUrl) {
+                URL.revokeObjectURL(lastTtsObjectUrl);
+                lastTtsObjectUrl = null;
+            }
+            var ttsEl = document.getElementById('ttsPlayback');
+            if (ttsEl) {
+                ttsEl.pause();
+                ttsEl.removeAttribute('src');
+            }
             addMessage('System', 'Session stopped.', false);
             
             // Stop any active recording
@@ -1260,12 +1572,6 @@
     console.log('[INIT] Event listeners attached');
     console.log('[INIT] Use checkVideoState() in console to debug video element');
     console.log('[INIT] Use forceVideoVisible() in console to force video visibility for testing');
-    
-    // Verify API endpoint is reachable
-    console.log('[INIT] Testing API endpoint availability...');
-    fetch(`${API_BASE}/session/create`, { method: 'OPTIONS' })
-        .then(() => console.log('[INIT] API endpoint is reachable'))
-        .catch(err => console.warn('[INIT] API endpoint test failed (this is OK):', err));
     
     // Periodically check video state (for debugging)
     setInterval(() => {

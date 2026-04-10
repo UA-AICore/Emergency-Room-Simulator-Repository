@@ -18,6 +18,7 @@ namespace ERSimulatorApp.Controllers
         private readonly IHeyGenStreamingService _heyGenService;
         private readonly ILLMService _llmService;
         private readonly IElevenLabsSpeechToTextService _speechToTextService;
+        private readonly IElevenLabsTextToSpeechService _ttsService;
         private readonly ILogger<AvatarStreamingController> _logger;
         private readonly IConfiguration _configuration;
         private readonly string _sourceDocumentsPath;
@@ -27,6 +28,7 @@ namespace ERSimulatorApp.Controllers
             IHeyGenStreamingService heyGenService,
             ILLMService llmService,
             IElevenLabsSpeechToTextService speechToTextService,
+            IElevenLabsTextToSpeechService ttsService,
             ILogger<AvatarStreamingController> logger,
             IConfiguration configuration,
             IWebHostEnvironment environment)
@@ -34,6 +36,7 @@ namespace ERSimulatorApp.Controllers
             _heyGenService = heyGenService;
             _llmService = llmService;
             _speechToTextService = speechToTextService;
+            _ttsService = ttsService;
             _logger = logger;
             _configuration = configuration;
 
@@ -115,6 +118,11 @@ namespace ERSimulatorApp.Controllers
 
                 var sessionData = await _heyGenService.CreateStreamingSessionAsync();
 
+                var useServerTtsForLiveAvatar = _configuration.GetValue<bool>("ElevenLabs:UseServerTtsForLiveAvatar");
+                var useLiveAvatarAgentSpeak = string.Equals(sessionData.Provider, "liveavatar", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(sessionData.WsUrl)
+                    && _configuration.GetValue<bool>("LiveAvatar:UseAgentSpeakWebSocket");
+
                 return Ok(new
                 {
                     success = true,
@@ -124,7 +132,9 @@ namespace ERSimulatorApp.Controllers
                     streamingToken = sessionData.StreamingToken,
                     wsUrl = sessionData.WsUrl,
                     avatarProvider = sessionData.Provider,
-                    deliversSpeechViaServer = _heyGenService.DeliversSpeechViaServer
+                    deliversSpeechViaServer = _heyGenService.DeliversSpeechViaServer,
+                    useServerTtsForLiveAvatar,
+                    useLiveAvatarAgentSpeak
                 });
             }
             catch (Exception ex)
@@ -139,6 +149,34 @@ namespace ERSimulatorApp.Controllers
             }
         }
 
+        /// <summary>
+        /// Synthesize speech as WAV (default) or raw PCM s16le mono 24 kHz for LiveAvatar LITE WebSocket <c>agent.speak</c> (see LiveAvatar LITE events docs).
+        /// Engine from <c>ElevenLabs:TtsEngine</c> (ElevenLabs API or MicrosoftEdgeFree).
+        /// </summary>
+        [HttpPost("tts")]
+        public async Task<IActionResult> SynthesizeTts([FromQuery] string? format, [FromBody] TtsSynthesizeRequest? body, CancellationToken cancellationToken)
+        {
+            var text = (body?.Text ?? "").Trim();
+            if (string.IsNullOrEmpty(text))
+                return BadRequest(new { error = "Text is required" });
+            if (text.Length > _maxSpeechChars)
+                return BadRequest(new { error = $"Text exceeds maximum length ({_maxSpeechChars} characters)" });
+
+            var result = await _ttsService.SynthesizePcm24kAsync(text, cancellationToken);
+            if (!string.IsNullOrEmpty(result.ErrorMessage))
+                return StatusCode(502, new { error = result.ErrorMessage });
+            if (result.Pcm.Length == 0)
+                return StatusCode(502, new { error = "TTS returned no audio" });
+
+            if (string.Equals(format, "pcm", StringComparison.OrdinalIgnoreCase))
+            {
+                Response.Headers.Append("X-Pcm-Sample-Rate-Hz", "24000");
+                return File(result.Pcm, "application/octet-stream");
+            }
+
+            var wav = Pcm16MonoWavBuilder.Build(result.Pcm, 24000);
+            return File(wav, "audio/wav", "speech.wav");
+        }
 
         /// <summary>
         /// Process audio input: ElevenLabs STT → RAG → HeyGen

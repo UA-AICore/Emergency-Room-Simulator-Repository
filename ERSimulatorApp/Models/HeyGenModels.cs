@@ -160,5 +160,10 @@ namespace ERSimulatorApp.Models
         public string ConversationId { get; set; } = string.Empty;
         public string? StreamingToken { get; set; }
     }
+
+    public class TtsSynthesizeRequest
+    {
+        public string? Text { get; set; }
+    }
 }
 
