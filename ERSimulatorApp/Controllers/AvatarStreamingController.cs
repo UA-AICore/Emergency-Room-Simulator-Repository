@@ -123,6 +123,18 @@ namespace ERSimulatorApp.Controllers
                     && !string.IsNullOrWhiteSpace(sessionData.WsUrl)
                     && _configuration.GetValue<bool>("LiveAvatar:UseAgentSpeakWebSocket");
 
+                var auxiliaryVoiceMode = "none";
+                if (string.Equals(sessionData.Provider, "liveavatar", StringComparison.OrdinalIgnoreCase))
+                {
+                    var aux = (_configuration["LiveAvatar:AuxiliaryVoiceMode"] ?? "None").Trim();
+                    if (aux.Equals("BrowserTts", StringComparison.OrdinalIgnoreCase))
+                        auxiliaryVoiceMode = "browsertts";
+                    else if (aux.Equals("ServerTts", StringComparison.OrdinalIgnoreCase))
+                        auxiliaryVoiceMode = "servertts";
+                }
+
+                var agentSpeakPcmHz = GetAgentSpeakPcmSampleRateHz();
+
                 return Ok(new
                 {
                     success = true,
@@ -134,7 +146,9 @@ namespace ERSimulatorApp.Controllers
                     avatarProvider = sessionData.Provider,
                     deliversSpeechViaServer = _heyGenService.DeliversSpeechViaServer,
                     useServerTtsForLiveAvatar,
-                    useLiveAvatarAgentSpeak
+                    useLiveAvatarAgentSpeak,
+                    auxiliaryVoiceMode,
+                    agentSpeakPcmSampleRateHz = agentSpeakPcmHz
                 });
             }
             catch (Exception ex)
@@ -150,8 +164,8 @@ namespace ERSimulatorApp.Controllers
         }
 
         /// <summary>
-        /// Synthesize speech as WAV (default) or raw PCM s16le mono 24 kHz for LiveAvatar LITE WebSocket <c>agent.speak</c> (see LiveAvatar LITE events docs).
-        /// Engine from <c>ElevenLabs:TtsEngine</c> (ElevenLabs API or MicrosoftEdgeFree).
+        /// Synthesize speech as WAV (default, 24 kHz) or raw PCM s16le mono for LiveAvatar <c>agent.speak</c> (<c>?format=pcm</c>).
+        /// PCM output rate is <c>LiveAvatar:AgentSpeakPcmSampleRateHz</c> (default 24000, same as TTS). Use 48000 only if LiveAvatar plays too fast/chipmunk; if voice sounds too deep/slow at 48000, keep 24000.
         /// </summary>
         [HttpPost("tts")]
         public async Task<IActionResult> SynthesizeTts([FromQuery] string? format, [FromBody] TtsSynthesizeRequest? body, CancellationToken cancellationToken)
@@ -162,6 +176,7 @@ namespace ERSimulatorApp.Controllers
             if (text.Length > _maxSpeechChars)
                 return BadRequest(new { error = $"Text exceeds maximum length ({_maxSpeechChars} characters)" });
 
+            const int ttsInternalHz = 24000;
             var result = await _ttsService.SynthesizePcm24kAsync(text, cancellationToken);
             if (!string.IsNullOrEmpty(result.ErrorMessage))
                 return StatusCode(502, new { error = result.ErrorMessage });
@@ -170,13 +185,21 @@ namespace ERSimulatorApp.Controllers
 
             if (string.Equals(format, "pcm", StringComparison.OrdinalIgnoreCase))
             {
-                Response.Headers.Append("X-Pcm-Sample-Rate-Hz", "24000");
-                return File(result.Pcm, "application/octet-stream");
+                var outHz = GetAgentSpeakPcmSampleRateHz();
+                var pcm = outHz == ttsInternalHz
+                    ? result.Pcm
+                    : PcmS16LeMonoResampler.Resample(result.Pcm, ttsInternalHz, outHz);
+                Response.Headers.Append("X-Pcm-Sample-Rate-Hz", outHz.ToString());
+                return File(pcm, "application/octet-stream");
             }
 
-            var wav = Pcm16MonoWavBuilder.Build(result.Pcm, 24000);
+            var wav = Pcm16MonoWavBuilder.Build(result.Pcm, ttsInternalHz);
             return File(wav, "audio/wav", "speech.wav");
         }
+
+        /// <summary>Sample rate for <c>/tts?format=pcm</c> (LiveAvatar agent.speak). Default 24000 matches Edge/ElevenLabs TTS; raise to 48000 only if you hear fast/chipmunk speech.</summary>
+        private int GetAgentSpeakPcmSampleRateHz() =>
+            Math.Clamp(_configuration.GetValue("LiveAvatar:AgentSpeakPcmSampleRateHz", 24000), 8000, 96000);
 
         /// <summary>
         /// Process audio input: ElevenLabs STT → RAG → HeyGen

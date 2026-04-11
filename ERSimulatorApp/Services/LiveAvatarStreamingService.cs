@@ -7,7 +7,7 @@ namespace ERSimulatorApp.Services
 {
     /// <summary>
     /// LiveAvatar API (LITE mode): session token + start → LiveKit.
-    /// Per LiveAvatar LITE lifecycle docs, TTS audio is normally sent on the session <c>ws_url</c> as <c>agent.speak</c> (PCM 24 kHz);
+    /// Per LiveAvatar LITE lifecycle docs, TTS audio is normally sent on the session <c>ws_url</c> as <c>agent.speak</c> (PCM s16le mono at <c>LiveAvatar:AgentSpeakPcmSampleRateHz</c>, default 24 kHz to match Edge/ElevenLabs TTS; optional upsample to 48000 if speech is too fast);
     /// alternatively the frontend may use LiveKit <c>publishData</c> <c>avatar.speak_text</c> on topic <c>agent-control</c>.
     /// </summary>
     public class LiveAvatarStreamingService : IHeyGenStreamingService

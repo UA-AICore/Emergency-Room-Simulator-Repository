@@ -135,6 +135,9 @@
     let deliversSpeechViaServer = true;
     let useServerTtsForLiveAvatar = false;
     let useLiveAvatarAgentSpeak = false;
+    /** Matches server LiveAvatar:AgentSpeakPcmSampleRateHz for agent.speak chunk sizing; overridden by TTS response header. */
+    let liveAvatarAgentSpeakPcmHz = 24000;
+    let liveAvatarAuxiliaryVoiceMode = 'none';
     let liveAvatarWs = null;
     let liveAvatarWsReady = false;
     let liveAvatarWsConnectPromise = null;
@@ -266,51 +269,121 @@
         return opts;
     }
 
+    /** Split long answers so one speak_text packet does not drop the LiveAvatar session (~400 chars per segment). */
+    function splitLiveAvatarSpeakChunks(text, maxLen) {
+        maxLen = maxLen || 400;
+        var t = (text || '').trim();
+        if (t.length <= maxLen) return t.length ? [t] : [];
+        var parts = [];
+        var rest = t;
+        while (rest.length > 0) {
+            if (rest.length <= maxLen) {
+                parts.push(rest);
+                break;
+            }
+            var slice = rest.substring(0, maxLen);
+            var lastSpace = slice.lastIndexOf(' ');
+            if (lastSpace > maxLen * 0.5) slice = rest.substring(0, lastSpace);
+            var piece = slice.trim();
+            if (piece.length) parts.push(piece);
+            rest = rest.substring(slice.length).trim();
+        }
+        return parts.length ? parts : [t];
+    }
+
     /**
      * LiveAvatar migration: repeat API -> avatar.speak_text event; interrupt -> avatar.interrupt.
-     * Use top-level "type" (matches WS events) plus event_type for compatibility; target remote agents explicitly.
+     * Long text is chunked: a single large speak_text has been observed to immediately disconnect the room.
      */
+    // Returns a Promise that resolves when all speak_text chunks are published (or nothing to send).
     function publishLiveAvatarSpeakText(text) {
         if (!text || !liveKitRoom || !liveKitRoom.localParticipant) {
             console.warn('[LiveAvatar] skip speak_text: no room or empty text');
-            return;
+            return Promise.resolve();
         }
         const LiveKit = window.LivekitClient;
-        if (!LiveKit) return;
+        if (!LiveKit) return Promise.resolve();
 
-        function runSpeakPipeline() {
-            const opts = getLiveAvatarDataPublishOptions();
-            const eventId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('evt-' + Date.now());
-            const interruptId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('int-' + Date.now());
-            const interruptBytes = new TextEncoder().encode(JSON.stringify({
-                type: 'avatar.interrupt',
-                event_type: 'avatar.interrupt',
-                event_id: interruptId
-            }));
-            const speakBytes = new TextEncoder().encode(JSON.stringify({
-                type: 'avatar.speak_text',
-                event_type: 'avatar.speak_text',
-                event_id: eventId,
-                text: text
-            }));
-            liveKitRoom.localParticipant.publishData(interruptBytes, opts)
-                .catch(function() { /* ignore */ })
-                .then(function() { return new Promise(function(r) { setTimeout(r, 120); }); })
-                .then(function() {
-                    return liveKitRoom.localParticipant.publishData(speakBytes, opts);
-                })
-                .then(function() {
-                    console.log('[LiveAvatar] speak_text published, chars:', text.length, 'destinations:', opts.destinationIdentities || '(broadcast)');
-                })
-                .catch(function(err) { console.error('[LiveAvatar] publishData failed:', err); });
-        }
+        return new Promise(function(resolve, reject) {
+            function runSpeakChunkedPipeline() {
+                const opts = getLiveAvatarDataPublishOptions();
+                const chunks = splitLiveAvatarSpeakChunks(text, 400);
+                if (chunks.length === 0) {
+                    resolve();
+                    return;
+                }
 
-        if (!liveKitRoom.remoteParticipants || liveKitRoom.remoteParticipants.size === 0) {
-            console.warn('[LiveAvatar] no remote participants yet; deferring speak_text 450ms');
-            setTimeout(runSpeakPipeline, 450);
-            return;
+                const interruptId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('int-' + Date.now());
+                const interruptBytes = new TextEncoder().encode(JSON.stringify({
+                    type: 'avatar.interrupt',
+                    event_type: 'avatar.interrupt',
+                    event_id: interruptId
+                }));
+
+                var chain = liveKitRoom.localParticipant.publishData(interruptBytes, opts).catch(function() { /* ignore */ });
+                chain = chain.then(function() { return new Promise(function(r) { setTimeout(r, 120); }); });
+
+                var betweenMs = 480;
+                for (var i = 0; i < chunks.length; i++) {
+                    (function(idx) {
+                        chain = chain.then(function() {
+                            if (idx > 0) return new Promise(function(r) { setTimeout(r, betweenMs); });
+                        }).then(function() {
+                            var eventId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('evt-' + Date.now() + '-' + idx);
+                            var speakBytes = new TextEncoder().encode(JSON.stringify({
+                                type: 'avatar.speak_text',
+                                event_type: 'avatar.speak_text',
+                                event_id: eventId,
+                                text: chunks[idx]
+                            }));
+                            return liveKitRoom.localParticipant.publishData(speakBytes, opts);
+                        });
+                    })(i);
+                }
+
+                chain
+                    .then(function() {
+                        console.log('[LiveAvatar] speak_text done:', chunks.length, 'segment(s),', text.length, 'chars total, destinations:', opts.destinationIdentities || '(broadcast)');
+                        resolve();
+                    })
+                    .catch(function(err) {
+                        console.error('[LiveAvatar] publishData failed:', err);
+                        reject(err);
+                    });
+            }
+
+            if (!liveKitRoom.remoteParticipants || liveKitRoom.remoteParticipants.size === 0) {
+                console.warn('[LiveAvatar] no remote participants yet; deferring speak_text 450ms');
+                setTimeout(function() {
+                    try { runSpeakChunkedPipeline(); } catch (e) { reject(e); }
+                }, 450);
+                return;
+            }
+            try { runSpeakChunkedPipeline(); } catch (e) { reject(e); }
+        });
+    }
+
+    /** When LiveAvatar speak_text does not carry audible PCM (common in LITE), optional browser TTS alongside it. */
+    function playBrowserSpeechAlongSpeakText(text) {
+        if (!text || typeof window.speechSynthesis === 'undefined') return;
+        try {
+            window.speechSynthesis.cancel();
+            var max = 3800;
+            var slice = text.length > max ? text.substring(0, max) : text;
+            var u = new SpeechSynthesisUtterance(slice);
+            u.rate = 1;
+            window.speechSynthesis.speak(u);
+            console.log('[LiveAvatar] browser SpeechSynthesis started, chars:', slice.length);
+        } catch (e) {
+            console.warn('[LiveAvatar] SpeechSynthesis failed:', e);
         }
-        runSpeakPipeline();
+    }
+
+    function maybeAuxiliaryVoiceAfterSpeakText(text) {
+        if (liveAvatarAuxiliaryVoiceMode === 'browsertts')
+            playBrowserSpeechAlongSpeakText(text);
+        else if (liveAvatarAuxiliaryVoiceMode === 'servertts')
+            playServerTts(text);
     }
 
     async function playServerTts(text) {
@@ -424,7 +497,7 @@
                     if (settled) return;
                     if (liveAvatarWs && liveAvatarWs.readyState === WebSocket.OPEN) {
                         clearTimeout(timer);
-                        console.warn('[LiveAvatar WS] no session.state_updated received; proceeding after open (API may not emit that event)');
+                        console.log('[LiveAvatar WS] no session.state_updated yet; proceeding after open (normal for some LITE sessions)');
                         doneOk();
                     }
                 }, 2500);
@@ -479,7 +552,8 @@
     function sendLiveAvatarAgentInterrupt() {
         if (!liveAvatarWs || liveAvatarWs.readyState !== WebSocket.OPEN) return;
         try {
-            liveAvatarWs.send(JSON.stringify({ type: 'agent.interrupt' }));
+            var interruptEventId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('int-' + Date.now());
+            liveAvatarWs.send(JSON.stringify({ type: 'agent.interrupt', event_id: interruptEventId }));
         } catch (e) { console.warn('[LiveAvatar WS] interrupt failed', e); }
     }
 
@@ -504,10 +578,19 @@
         }
         var buf = await res.arrayBuffer();
         var pcm = new Uint8Array(buf);
-        if (pcm.length === 0) return;
+        if (pcm.length === 0) {
+            console.warn('[LiveAvatar WS] TTS returned empty PCM; will fall back if configured');
+            throw new Error('TTS returned empty audio');
+        }
+        var rateHz = liveAvatarAgentSpeakPcmHz;
+        var hdrHz = res.headers.get('X-Pcm-Sample-Rate-Hz');
+        if (hdrHz) {
+            var p = parseInt(hdrHz, 10);
+            if (!isNaN(p) && p > 0) rateHz = p;
+        }
         sendLiveAvatarAgentInterrupt();
         var eventId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : ('evt-' + Date.now());
-        var chunkBytes = 24000 * 2;
+        var chunkBytes = rateHz * 2;
         for (var off = 0; off < pcm.length; off += chunkBytes) {
             if (!liveAvatarWs || liveAvatarWs.readyState !== WebSocket.OPEN) break;
             var slice = pcm.subarray(off, Math.min(off + chunkBytes, pcm.length));
@@ -518,7 +601,7 @@
         if (liveAvatarWs && liveAvatarWs.readyState === WebSocket.OPEN) {
             liveAvatarWs.send(JSON.stringify({ type: 'agent.speak_end', event_id: eventId }));
         }
-        console.log('[LiveAvatar WS] agent.speak sent, pcm bytes:', pcm.length);
+        console.log('[LiveAvatar WS] agent.speak sent, pcm bytes:', pcm.length, 'rateHz:', rateHz);
     }
 
     function maybeSpeakAvatarResponse(response) {
@@ -528,12 +611,20 @@
         if (useLiveAvatarAgentSpeak) {
             streamLiveAvatarAgentSpeakFromServerTts(toSpeak).catch(function(err) {
                 console.warn('[LiveAvatar WS] falling back to speak_text:', err);
-                publishLiveAvatarSpeakText(toSpeak);
+                publishLiveAvatarSpeakText(toSpeak).then(function() {
+                    maybeAuxiliaryVoiceAfterSpeakText(toSpeak);
+                }).catch(function() {
+                    maybeAuxiliaryVoiceAfterSpeakText(toSpeak);
+                });
             });
         } else if (useServerTtsForLiveAvatar) {
             playServerTts(toSpeak);
         } else {
-            publishLiveAvatarSpeakText(toSpeak);
+            publishLiveAvatarSpeakText(toSpeak).then(function() {
+                maybeAuxiliaryVoiceAfterSpeakText(toSpeak);
+            }).catch(function() {
+                maybeAuxiliaryVoiceAfterSpeakText(toSpeak);
+            });
         }
     }
 
@@ -769,6 +860,7 @@
 
                         room.on(LiveKit.RoomEvent.Disconnected, () => {
                             console.log('Room disconnected');
+                            try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
                             stopKeepalive();
                             updateStatus('Disconnected', 'danger');
                             isSessionActive = false;
@@ -778,6 +870,8 @@
                             deliversSpeechViaServer = true;
                             useServerTtsForLiveAvatar = false;
                             useLiveAvatarAgentSpeak = false;
+                            liveAvatarAgentSpeakPcmHz = 24000;
+                            liveAvatarAuxiliaryVoiceMode = 'none';
                             closeLiveAvatarWebSocket();
                             if (lastTtsObjectUrl) {
                                 URL.revokeObjectURL(lastTtsObjectUrl);
@@ -811,6 +905,11 @@
                         Promise.race([connectPromise, timeoutPromise])
                             .then(() => {
                                 console.log('LiveKit connected successfully');
+                                if (typeof room.startAudio === 'function') {
+                                    room.startAudio()
+                                        .then(function() { console.log('[LK] startAudio() ok'); })
+                                        .catch(function(e) { console.warn('[LK] startAudio:', e); });
+                                }
                                 resolve(room);
                             })
                             .catch(reject);
@@ -998,7 +1097,10 @@
             useServerTtsForLiveAvatar = !!(sessionResponse.useServerTtsForLiveAvatar) && deliversSpeechViaServer === false;
             useLiveAvatarAgentSpeak = !!(sessionResponse.useLiveAvatarAgentSpeak) && deliversSpeechViaServer === false;
             if (useLiveAvatarAgentSpeak) useServerTtsForLiveAvatar = false;
-            console.log('[SESSION] deliversSpeechViaServer:', deliversSpeechViaServer, 'useLiveAvatarAgentSpeak:', useLiveAvatarAgentSpeak, 'useServerTtsForLiveAvatar:', useServerTtsForLiveAvatar, 'provider:', sessionResponse.avatarProvider);
+            var spHz = Number(sessionResponse.agentSpeakPcmSampleRateHz);
+            if (!isNaN(spHz) && spHz > 0) liveAvatarAgentSpeakPcmHz = spHz;
+            liveAvatarAuxiliaryVoiceMode = useLiveAvatarAgentSpeak ? 'none' : (sessionResponse.auxiliaryVoiceMode || 'none').toString().toLowerCase();
+            console.log('[SESSION] deliversSpeechViaServer:', deliversSpeechViaServer, 'useLiveAvatarAgentSpeak:', useLiveAvatarAgentSpeak, 'useServerTtsForLiveAvatar:', useServerTtsForLiveAvatar, 'auxiliaryVoice:', liveAvatarAuxiliaryVoiceMode, 'provider:', sessionResponse.avatarProvider);
             elements.sessionIdDisplay.textContent = sessionResponse.sessionId.substring(0, 8) + '...';
 
             showLoading('Connecting to avatar...');
@@ -1014,6 +1116,7 @@
                 } catch (wsErr) {
                     console.warn('[LiveAvatar WS] connect failed; using speak_text instead:', wsErr);
                     useLiveAvatarAgentSpeak = false;
+                    liveAvatarAuxiliaryVoiceMode = (sessionResponse.auxiliaryVoiceMode || 'none').toString().toLowerCase();
                 }
             }
 
@@ -1077,6 +1180,9 @@
             deliversSpeechViaServer = true;
             useServerTtsForLiveAvatar = false;
             useLiveAvatarAgentSpeak = false;
+            liveAvatarAgentSpeakPcmHz = 24000;
+            liveAvatarAuxiliaryVoiceMode = 'none';
+            try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
             closeLiveAvatarWebSocket();
         }
     }
@@ -1088,6 +1194,9 @@
             stopKeepalive();
             closeLiveAvatarWebSocket();
             useLiveAvatarAgentSpeak = false;
+            liveAvatarAgentSpeakPcmHz = 24000;
+            liveAvatarAuxiliaryVoiceMode = 'none';
+            try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
 
             if (sessionData) {
                 await stopSession(sessionData.sessionId);

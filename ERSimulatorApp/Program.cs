@@ -114,7 +114,7 @@ builder.Services.AddHttpClient<IElevenLabsSpeechToTextService, ElevenLabsSpeechT
     client.Timeout = TimeSpan.FromSeconds(elevenLabsTimeout);
 });
 
-// Text-to-speech (ElevenLabs API or Microsoft Edge read-aloud + ffmpeg); used by /api/avatar/v2/streaming/tts
+// Text-to-speech (ElevenLabs API or Microsoft Edge read-aloud + NLayer MP3 decode, ffmpeg optional fallback); used by /api/avatar/v2/streaming/tts
 var ttsEngine = (builder.Configuration["ElevenLabs:TtsEngine"] ?? "ElevenLabs").Trim();
 if (string.Equals(ttsEngine, "MicrosoftEdgeFree", StringComparison.OrdinalIgnoreCase))
 {

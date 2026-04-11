@@ -3,13 +3,16 @@ using System.Globalization;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
+using NLayer;
 
 namespace ERSimulatorApp.Services
 {
     /// <summary>
     /// Unofficial Microsoft Edge online TTS (same service as the edge-tts tool). No API key or ElevenLabs TTS.
-    /// Dev/testing only — unofficial, may break. Requires <c>ffmpeg</c> on PATH to decode MP3 to PCM 24 kHz mono.
+    /// Dev/testing only — unofficial, may break. Decodes MP3 with embedded <c>NLayer</c>; if that fails, uses <c>ffmpeg</c> on PATH when available.
     /// Set <c>ElevenLabs:TtsEngine</c> to <c>MicrosoftEdgeFree</c>.
+    /// Tune delivery with <c>ElevenLabs:EdgeTtsVoice</c> (e.g. male <c>en-US-GuyNeural</c> for instructor avatars),
+    /// <c>EdgeTtsProsodyPitch</c> (e.g. <c>+20%</c>, <c>+40Hz</c>, <c>+1st</c>), and <c>EdgeTtsProsodyRate</c> (e.g. <c>-60%</c> slower, <c>+5%</c> faster).
     /// </summary>
     public sealed class MicrosoftEdgeFreePcmTtsService : IElevenLabsTextToSpeechService
     {
@@ -34,28 +37,36 @@ namespace ERSimulatorApp.Services
             if (trimmed.Length == 0)
                 return new ElevenLabsPcmTtsResult(Array.Empty<byte>(), "Empty text after trim.");
 
-            var ffmpeg = FindFfmpegExecutable();
-            if (string.IsNullOrEmpty(ffmpeg))
-                return new ElevenLabsPcmTtsResult(Array.Empty<byte>(),
-                    "Install ffmpeg on the server (e.g. sudo apt install ffmpeg) and ensure it is on PATH.");
-
             var voice = (_configuration["ElevenLabs:EdgeTtsVoice"] ?? DefaultVoice).Trim();
             var major = (_configuration["ElevenLabs:EdgeTtsChromeMajor"] ?? DefaultChromeMajor).Trim();
             var secVer = (_configuration["ElevenLabs:EdgeTtsSecMsGecVersion"] ?? DefaultSecMsGecVersion).Trim();
+            var prosodyPitch = SanitizeSsmlProsodyToken(_configuration["ElevenLabs:EdgeTtsProsodyPitch"], "+0Hz");
+            var prosodyRate = SanitizeSsmlProsodyToken(_configuration["ElevenLabs:EdgeTtsProsodyRate"], "+0%");
+            _logger.LogDebug("Edge TTS prosody: voice={Voice} pitch={Pitch} rate={Rate}", voice, prosodyPitch, prosodyRate);
 
             using var mp3Stream = new MemoryStream();
             foreach (var chunk in SplitUtf8Chunks(SanitizeForEdge(trimmed), 4096))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var part = await SynthesizeChunkToMp3Async(chunk, voice, major, secVer, cancellationToken);
+                var part = await SynthesizeChunkToMp3Async(chunk, voice, major, secVer, prosodyPitch, prosodyRate, cancellationToken);
                 if (part.Length == 0)
                     return new ElevenLabsPcmTtsResult(Array.Empty<byte>(), "Edge TTS returned no audio (service may have changed or blocked the request).");
                 await mp3Stream.WriteAsync(part, cancellationToken);
             }
 
-            var pcm = await FfmpegMp3ToPcm24kMonoAsync(ffmpeg, mp3Stream.ToArray(), _logger, cancellationToken);
+            var mp3Bytes = mp3Stream.ToArray();
+            var pcm = TryNLayerMp3ToPcm24kMono(mp3Bytes, _logger);
+            var ffmpegPath = FindFfmpegExecutable();
+            if (pcm.Length == 0 && !string.IsNullOrEmpty(ffmpegPath))
+                pcm = await FfmpegMp3ToPcm24kMonoAsync(ffmpegPath, mp3Bytes, _logger, cancellationToken);
+
             if (pcm.Length == 0)
-                return new ElevenLabsPcmTtsResult(Array.Empty<byte>(), "ffmpeg failed to decode MP3 to PCM 24 kHz mono.");
+            {
+                var hint = string.IsNullOrEmpty(ffmpegPath)
+                    ? "NLayer decode failed (no ffmpeg on PATH for fallback)."
+                    : "NLayer and ffmpeg decode both failed.";
+                return new ElevenLabsPcmTtsResult(Array.Empty<byte>(), "Could not decode Edge TTS MP3 to PCM 24 kHz mono: " + hint);
+            }
 
             _logger.LogInformation("MicrosoftEdgeFree TTS: {Bytes} bytes PCM 24kHz", pcm.Length);
             return new ElevenLabsPcmTtsResult(pcm, null);
@@ -112,10 +123,26 @@ namespace ERSimulatorApp.Services
             return sb.ToString();
         }
 
-        private static string BuildSsml(string voice, string escapedText) =>
+        /// <summary>SSML prosody pitch/rate for Edge (e.g. <c>+6%</c>, <c>+40Hz</c>, <c>+1st</c>, <c>x-low</c>, <c>-12%</c> rate). Rejects quotes/XML chars.</summary>
+        private static string SanitizeSsmlProsodyToken(string? raw, string fallback)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return fallback;
+            var t = raw.Trim();
+            if (t.Length > 28) return fallback;
+            foreach (var c in t)
+            {
+                if (c is '\'' or '"' or '<' or '>' or '&') return fallback;
+                if (char.IsAsciiLetterOrDigit(c) || c is '+' or '-' or '.' or '%' or '_') continue;
+                return fallback;
+            }
+
+            return t;
+        }
+
+        private static string BuildSsml(string voice, string escapedText, string pitchAttr, string rateAttr) =>
             "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='en-US'>" +
             "<voice name='" + voice + "'>" +
-            "<prosody pitch='+0Hz' rate='+0%' volume='+0%'>" + escapedText + "</prosody></voice></speak>";
+            "<prosody pitch='" + pitchAttr + "' rate='" + rateAttr + "' volume='+0%'>" + escapedText + "</prosody></voice></speak>";
 
         private static string EdgeTimestamp() =>
             DateTime.UtcNow.ToString("ddd MMM dd yyyy HH:mm:ss", CultureInfo.InvariantCulture) + " GMT+0000 (Coordinated Universal Time)";
@@ -130,7 +157,7 @@ namespace ERSimulatorApp.Services
             return Convert.ToHexString(SHA256.HashData(Encoding.ASCII.GetBytes(str)));
         }
 
-        private async Task<byte[]> SynthesizeChunkToMp3Async(string text, string voice, string chromeMajor, string secMsGecVersion, CancellationToken ct)
+        private async Task<byte[]> SynthesizeChunkToMp3Async(string text, string voice, string chromeMajor, string secMsGecVersion, string prosodyPitch, string prosodyRate, CancellationToken ct)
         {
             var connectId = Guid.NewGuid().ToString("N");
             var gec = GenerateSecMsGec();
@@ -166,7 +193,7 @@ namespace ERSimulatorApp.Services
                 "Content-Type:application/ssml+xml\r\n" +
                 $"X-Timestamp:{ts}Z\r\n" +
                 "Path:ssml\r\n\r\n" +
-                BuildSsml(voice, EscapeSsml(text));
+                BuildSsml(voice, EscapeSsml(text), prosodyPitch, prosodyRate);
             await ws.SendAsync(Encoding.UTF8.GetBytes(ssmlPayload), WebSocketMessageType.Text, true, ct);
 
             using var audio = new MemoryStream();
@@ -206,6 +233,66 @@ namespace ERSimulatorApp.Services
 
             try { await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "", CancellationToken.None); } catch { /* ignore */ }
             return gotAudio ? audio.ToArray() : Array.Empty<byte>();
+        }
+
+        /// <summary>Decode Edge MP3 (24 kHz mono typical) to s16le mono PCM at 24 kHz using NLayer.</summary>
+        private static byte[] TryNLayerMp3ToPcm24kMono(byte[] mp3, ILogger logger)
+        {
+            if (mp3.Length == 0) return Array.Empty<byte>();
+            try
+            {
+                using var ms = new MemoryStream(mp3, writable: false);
+                using var mpeg = new MpegFile(ms);
+                var rate = mpeg.SampleRate;
+                var ch = mpeg.Channels;
+                if (ch <= 0 || rate <= 0) return Array.Empty<byte>();
+
+                const int bufFloats = 8192;
+                var floatBuf = new float[bufFloats];
+                using var outMs = new MemoryStream();
+                while (true)
+                {
+                    var n = mpeg.ReadSamples(floatBuf, 0, floatBuf.Length);
+                    if (n <= 0) break;
+
+                    if (ch == 1)
+                    {
+                        for (var i = 0; i < n; i++)
+                            WriteS16Le(outMs, FloatToS16(floatBuf[i]));
+                    }
+                    else
+                    {
+                        for (var i = 0; i + ch - 1 < n; i += ch)
+                        {
+                            double sum = 0;
+                            for (var c = 0; c < ch; c++)
+                                sum += floatBuf[i + c];
+                            WriteS16Le(outMs, FloatToS16((float)(sum / ch)));
+                        }
+                    }
+                }
+
+                var raw = outMs.ToArray();
+                if (raw.Length == 0) return raw;
+                return rate == 24000 ? raw : PcmS16LeMonoResampler.Resample(raw, rate, 24000);
+            }
+            catch (Exception ex)
+            {
+                logger.LogDebug(ex, "NLayer MP3 decode failed");
+                return Array.Empty<byte>();
+            }
+        }
+
+        private static short FloatToS16(float f)
+        {
+            f = Math.Clamp(f, -1f, 1f);
+            return (short)Math.Round(f * 32767f);
+        }
+
+        private static void WriteS16Le(MemoryStream ms, short s)
+        {
+            ms.WriteByte((byte)(s & 0xff));
+            ms.WriteByte((byte)((s >> 8) & 0xff));
         }
 
         private static string? FindFfmpegExecutable()
