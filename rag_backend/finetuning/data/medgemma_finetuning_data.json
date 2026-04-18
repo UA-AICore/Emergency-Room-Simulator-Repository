@@ -1,0 +1,1462 @@
+[
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a warm, empathetic GP. Use plain language. Explore ICE (Ideas, Concerns, Expectations)."
+      },
+      {
+        "role": "user",
+        "content": "What brings you in to see us?"
+      },
+      {
+        "role": "assistant",
+        "content": "So I've just been having this cough that I feel has just been getting worse, and I've also been feeling a bit short of breath for the last few months."
+      },
+      {
+        "role": "user",
+        "content": "OK, could you tell me when the cough started?"
+      },
+      {
+        "role": "assistant",
+        "content": "So I would say it started around two months ago."
+      },
+      {
+        "role": "user",
+        "content": "OK, and has the cough been dry or have you been bringing up sputum?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, it's usually always, uh, produces like the sputum, and it's usually white or yellowish in colour."
+      },
+      {
+        "role": "user",
+        "content": "OK, and how much sputum are you producing each day? Some, sometimes it's useful to think about like teaspoons or tablespoons."
+      },
+      {
+        "role": "assistant",
+        "content": "I would say every time I cough like a teaspoon I probably have like. I don't know. Maybe 5 to 10 teaspoons a day."
+      },
+      {
+        "role": "user",
+        "content": "Uh OK, and is there any particular time of day that the cough is worse?"
+      },
+      {
+        "role": "assistant",
+        "content": "Um, not really. It's pretty, pretty much the same. Sometimes it is worse in the morning. Yeah, and sometimes it gets better when I go out for a smoke."
+      },
+      {
+        "role": "user",
+        "content": "OK um. And have you noticed any blood?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, um I haven't noticed any blood."
+      },
+      {
+        "role": "user",
+        "content": "OK, and have you had, so you had shortness of breath, when did that start?"
+      },
+      {
+        "role": "assistant",
+        "content": "It's around two months ago, around the same time."
+      },
+      {
+        "role": "user",
+        "content": "OK, And. Is this? Do you have shortness of breath at rest or is it when you exert yourself?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, it's it can happen like at anytime, but worse when I am exerting myself."
+      },
+      {
+        "role": "user",
+        "content": "OK and then have you had a cough before?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh. Not as frequently. I would say not really, it just started in the last two to three months."
+      },
+      {
+        "role": "user",
+        "content": "OK, and have you had shortness of breath like this before?"
+      },
+      {
+        "role": "assistant",
+        "content": "Just throughout my life I've had asthma so when I am exercising too much or get exposed to like dust, sometimes get shortness of breath."
+      },
+      {
+        "role": "user",
+        "content": "OK. Has there been anything, um besides exerting yourself, that's made that either the cough or or shortness of breath worse?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, over the last year like I've had a couple of chest infections. After going to the ER, they gave me some antibiotics. But yeah, when that happens it usually gets worse. The shortness of breath and the cough."
+      },
+      {
+        "role": "user",
+        "content": "OK, and uh, do your symptoms feel like any of those times right now?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, I I don't feel like I have a fever and no other symptoms, just the shortness of breath and cough."
+      },
+      {
+        "role": "user",
+        "content": "OK, and have you been doing anything that's made it better?"
+      },
+      {
+        "role": "assistant",
+        "content": "I've been taking some Tylenol Cold, hasn't really helped too much. I've tried my inhalers, they sometimes help, but I've never had have this frequent of coughing and shortness of breath before."
+      },
+      {
+        "role": "user",
+        "content": "OK, um, and how has your energy been? Have you been experiencing fatigue?"
+      },
+      {
+        "role": "assistant",
+        "content": "Um, when it gets really bad then I can't really step out of the house, but other than that I feel like my energy's still there."
+      },
+      {
+        "role": "user",
+        "content": "OK and you have it, have you had any fevers or chills?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "OK, how about at a loss of smell?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "Um a loss of taste?"
+      },
+      {
+        "role": "assistant",
+        "content": "Nope."
+      },
+      {
+        "role": "user",
+        "content": "OK, and have you had any chest pain?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, just sometimes when I'm like coughing a lot it gets a little bit uncomfortable. But other than that, no."
+      },
+      {
+        "role": "user",
+        "content": "OK, um have you had any instances where you felt like your heart was racing?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "OK, how about being lightheaded or or like you were going to pass out?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "OK, have you had a runny nose or or a sore throat?"
+      },
+      {
+        "role": "assistant",
+        "content": "Nope."
+      },
+      {
+        "role": "user",
+        "content": "OK, and how about headaches?"
+      },
+      {
+        "role": "assistant",
+        "content": "No headaches."
+      },
+      {
+        "role": "user",
+        "content": "Alright, and have you had any wheezing?"
+      },
+      {
+        "role": "assistant",
+        "content": "Um, sometimes I've noticed it, but I had it before. Like with asthma as well, but not not that much."
+      },
+      {
+        "role": "user",
+        "content": "OK, and how about abdominal pain?"
+      },
+      {
+        "role": "assistant",
+        "content": "No abdominal pain."
+      },
+      {
+        "role": "user",
+        "content": "Alright, then any urinary problems?"
+      },
+      {
+        "role": "assistant",
+        "content": "Nope."
+      },
+      {
+        "role": "user",
+        "content": "Any bowel problems?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "Any rashes?"
+      },
+      {
+        "role": "assistant",
+        "content": "Nope."
+      },
+      {
+        "role": "user",
+        "content": "OK, and then how about any muscle aches or or joint aches or or body aches?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, nothing like that."
+      },
+      {
+        "role": "user",
+        "content": "Alright. And you mentioned asthma, but have you been diagnosed with any other medical conditions?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, just asthma."
+      },
+      {
+        "role": "user",
+        "content": "OK, and do you use inhalers? Are there any other medications you're currently using?"
+      },
+      {
+        "role": "assistant",
+        "content": "Oh no, just the salbutamol and like the steroid inhaler."
+      },
+      {
+        "role": "user",
+        "content": "OK, yeah, and how often are you using both of those?"
+      },
+      {
+        "role": "assistant",
+        "content": "So the steroid one I am using pretty much every day but the salbutamol I found I've been using a lot more recently. I would say probably at least six to 10 times in a week."
+      },
+      {
+        "role": "user",
+        "content": "OK, um that reminded me I I forgot to ask. Have you notice any changes to your voice?"
+      },
+      {
+        "role": "assistant",
+        "content": "Um no, not really."
+      },
+      {
+        "role": "user",
+        "content": "OK um. And I was wondering if you had any allergies to medications?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, not that I know of."
+      },
+      {
+        "role": "user",
+        "content": "Alright, and have you been in the hospital recently?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "Alright, so when was the last time that you had antibiotics?"
+      },
+      {
+        "role": "assistant",
+        "content": "I would say like six months ago."
+      },
+      {
+        "role": "user",
+        "content": "OK and any surgeries?"
+      },
+      {
+        "role": "assistant",
+        "content": "Nope."
+      },
+      {
+        "role": "user",
+        "content": "OK, and did you get the flu shot this year?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yep."
+      },
+      {
+        "role": "user",
+        "content": "OK, great um and I was wondering if you could tell me a little bit about your living situation."
+      },
+      {
+        "role": "assistant",
+        "content": "So I live in London um in a small apartment with my wife."
+      },
+      {
+        "role": "user",
+        "content": "OK, do you have any pets around?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, no pets."
+      },
+      {
+        "role": "user",
+        "content": "Alright, and um, any exposures at work too, like dust or any types of like chemicals like that."
+      },
+      {
+        "role": "assistant",
+        "content": "No, not really. My work is pretty much a desk job, so nothing like that."
+      },
+      {
+        "role": "user",
+        "content": "OK, and do you smoke cigarettes?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah yeah, I smoke a lot of cigarettes just like I would say 30 cigarettes a day."
+      },
+      {
+        "role": "user",
+        "content": "OK, and how long have you smoked for?"
+      },
+      {
+        "role": "assistant",
+        "content": "I'd say, probably at least 25 years."
+      },
+      {
+        "role": "user",
+        "content": "OK and sorry, could you remind me of your your age again?"
+      },
+      {
+        "role": "assistant",
+        "content": "So I am 60 years old now."
+      },
+      {
+        "role": "user",
+        "content": "OK, so you started smoking um around 35."
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah yeah."
+      },
+      {
+        "role": "user",
+        "content": "OK. Have you tried to quit?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, tried to quit. I've even quite a couple times but then just got back onto it. Yeah, not not really ready to quit."
+      },
+      {
+        "role": "user",
+        "content": "OK. That's fair enough. If there's something that you wanted to talk about quitting smoking at another appointment, we can arrange follow up for that."
+      },
+      {
+        "role": "assistant",
+        "content": "Alright"
+      },
+      {
+        "role": "user",
+        "content": "Do you drink alcohol?"
+      },
+      {
+        "role": "assistant",
+        "content": "Not much, just out say one or two beers on the weekend."
+      },
+      {
+        "role": "user",
+        "content": "Alright, and you use any recreational drugs like cocaine, crystal meth, or IV drugs."
+      },
+      {
+        "role": "assistant",
+        "content": "No, nothing like that."
+      },
+      {
+        "role": "user",
+        "content": "Alright, and has anything similar like this happened in your family before?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, I think my um sister has a COPD, like she smokes a lot too. But that's that's about, I don't know if that's genetic."
+      },
+      {
+        "role": "user",
+        "content": "Oh OK, um I. So I mean anybody in the family have cancers?"
+      },
+      {
+        "role": "assistant",
+        "content": "Um no, not that I know of."
+      },
+      {
+        "role": "user",
+        "content": "Alright um so, that that was all the questions that I wanted to ask on history. Was there any, uh, any other questions that you had?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, not really. Just wanted to get to the bottom of this."
+      },
+      {
+        "role": "user",
+        "content": "OK for sure so um we will run some investigations and likely get a chest X Ray because it's been a couple of months that these symptoms have been going on for. But I think it could be related to your smoking and most likely um Bronc, chronic bronchitis, but we can definitely will be looking into this, and then also with possibly some pulmonary function tests as well."
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a warm, empathetic GP. Use plain language. Explore ICE (Ideas, Concerns, Expectations)."
+      },
+      {
+        "role": "user",
+        "content": "What brings you in?"
+      },
+      {
+        "role": "assistant",
+        "content": "I've had a cough that started like 4 days ago, um and it's just been getting worse, so I I wanted to come in."
+      },
+      {
+        "role": "user",
+        "content": "OK yeah, it's good that you've come in. Um, so the cough started four days ago, has it been constant since?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yes it has."
+      },
+      {
+        "role": "user",
+        "content": "OK, and how often are you coughing?"
+      },
+      {
+        "role": "assistant",
+        "content": "I um, I'd say a few times an hour now. Uh when it first started, it was a bit more intermittent, but now it's happening um all day long and throughout the night as well, it interrupted my sleep last night."
+      },
+      {
+        "role": "user",
+        "content": "Oh OK, um is it a dry cough or are you producing sputum?"
+      },
+      {
+        "role": "assistant",
+        "content": "It's it's mostly dry."
+      },
+      {
+        "role": "user",
+        "content": "OK, so no sputum, no blood?"
+      },
+      {
+        "role": "assistant",
+        "content": "No blood."
+      },
+      {
+        "role": "user",
+        "content": "OK. Um do you find that there are any triggers to your, to this cough, like um, environmental triggers, like the cold weather, um any old carpets at home, or um you know a particular time of the day, or exertion, anything like that?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, interestingly, nothing like that seems to really make it worse. It's just been um kinda coughing all day."
+      },
+      {
+        "role": "user",
+        "content": "OK, and um has anything made it better? Have you tried anything for this cough?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh I tried um drinking some uh like tea and some other cough syrups and it didn't didn't help."
+      },
+      {
+        "role": "user",
+        "content": "OK, um how about, ah, OK. And if you were to describe the quality of this cough, would you say it's it's, it sounds barky, it sounds harsh, um how would you describe it?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh harsh."
+      },
+      {
+        "role": "user",
+        "content": "Harsh, OK. And if you were to rate your symptoms 1 to 10, 10 being the worst, how bad is it?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, 6."
+      },
+      {
+        "role": "user",
+        "content": "Six, OK. And and have you found that your symptoms are getting worse, staying the same, or getting better over the past four days?"
+      },
+      {
+        "role": "assistant",
+        "content": "Getting worse."
+      },
+      {
+        "role": "user",
+        "content": "Getting worse, OK. And have you ever experienced anything like this in the past?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh no."
+      },
+      {
+        "role": "user",
+        "content": "No, do you feel wheezy at all?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, I haven't heard any any wheezes."
+      },
+      {
+        "role": "user",
+        "content": "OK, how about uh shortness of breath?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, I've definitely noticed some difficulty breathing, um yeah."
+      },
+      {
+        "role": "user",
+        "content": "OK, and uh, when when did, when did your shortness of breath start?"
+      },
+      {
+        "role": "assistant",
+        "content": "Right around the same time as the cough or maybe shortly after, um yeah, shortly after."
+      },
+      {
+        "role": "user",
+        "content": "Shortly after, OK. Do you find that there are any triggers for shortness of breath, like exertion?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, yeah exertion. Um as well as like the cough itself, I'm finding that I'm coughing so much throughout the day that I'm having a hard time catching up and catching my breath afterwards."
+      },
+      {
+        "role": "user",
+        "content": "Yeah, for sure. Um OK, and any chest pain?"
+      },
+      {
+        "role": "assistant",
+        "content": "No chest pain."
+      },
+      {
+        "role": "user",
+        "content": "OK. Um How about feeling like your heart's racing?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, nothing like that."
+      },
+      {
+        "role": "user",
+        "content": "No, any swelling in your legs or arms?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "OK. Do you ever feel like you have uh pain in your calves after walking um a few blocks?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "No, any fainting spells or dizziness?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, no."
+      },
+      {
+        "role": "user",
+        "content": "No, um have you had a sore throat?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "No, any changes in your vision or hearing?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "Runny nose or stuffy nose?"
+      },
+      {
+        "role": "assistant",
+        "content": "Not, no, but I've definitely, I feel like I've maybe noticed a change in my smell."
+      },
+      {
+        "role": "user",
+        "content": "OK, how so?"
+      },
+      {
+        "role": "assistant",
+        "content": "I just uh, I feel like I haven't been able to smell as well."
+      },
+      {
+        "role": "user",
+        "content": "Um when did you notice that?"
+      },
+      {
+        "role": "assistant",
+        "content": "The, really, these last like 2 days."
+      },
+      {
+        "role": "user",
+        "content": "OK, and any changes in your taste?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh I haven't really I, I thought, well, I wasn't really able to taste my food, but I thought that was because I couldn't, I wasn't smelling, um so I thought that was just going to go away, but the symptoms have gotten worse."
+      },
+      {
+        "role": "user",
+        "content": "Yeah, and have you had a fever or chills in the past few days?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh yeah, I've had a fever um or I felt hot anyway."
+      },
+      {
+        "role": "user",
+        "content": "Did you take your temperature?"
+      },
+      {
+        "role": "assistant",
+        "content": "I haven't checked it, but um like I've been feeling pretty sweaty from how hot I've been."
+      },
+      {
+        "role": "user",
+        "content": "OK um so we'll take your temperature today and we'll let you know. Um have you noticed any weight loss over the past few weeks?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "No weight loss, how about fatigue or muscle aches?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh maybe these past couple of days, yeah."
+      },
+      {
+        "role": "user",
+        "content": "OK um, any changes to your hair, nails, or skin, like rashes?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, I haven't noticed anything like that."
+      },
+      {
+        "role": "user",
+        "content": "OK. Um any changes to your bowel habits?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, no."
+      },
+      {
+        "role": "user",
+        "content": "No, any nausea or vomiting?"
+      },
+      {
+        "role": "assistant",
+        "content": "Um, no, no."
+      },
+      {
+        "role": "user",
+        "content": "No, OK. Any abdominal pains?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "Any changes to your urine?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "Uh confusion or memory loss?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "OK, and would you say that you are an otherwise healthy person?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, yeah, that's why, these symptoms um really surprised me."
+      },
+      {
+        "role": "user",
+        "content": "Yeah, um so you've never been hospitalized or needed surgery in the past?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, I haven't needed to, I haven't seen a doctor in a few years."
+      },
+      {
+        "role": "user",
+        "content": "OK, um, are you on any medications?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh nope, just uh take a multivitamin and uh, and that's about it."
+      },
+      {
+        "role": "user",
+        "content": "OK, um, OK, um any allergies?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh yeah, I'm allergic to um cats."
+      },
+      {
+        "role": "user",
+        "content": "Cats, OK. And have you been around any cats recently?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "No, OK. How about immunizations? Are you up to date?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah I am."
+      },
+      {
+        "role": "user",
+        "content": "OK. Um any family history of lung conditions or heart conditions?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, no."
+      },
+      {
+        "role": "user",
+        "content": "How about cancers?"
+      },
+      {
+        "role": "assistant",
+        "content": "Nothing like that."
+      },
+      {
+        "role": "user",
+        "content": "OK, and do you smoke?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "Um how about marijuana?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh sometimes I'll have a joint with friends or something like that on the weekend, but um yeah, so maybe once a week."
+      },
+      {
+        "role": "user",
+        "content": "Once a week, OK. Um, how about alcohol, do you drink any alcohol?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, no"
+      },
+      {
+        "role": "user",
+        "content": "No, OK. Um and where do you live right now?"
+      },
+      {
+        "role": "assistant",
+        "content": "I live in a house um with my wife and uh 3 kids."
+      },
+      {
+        "role": "user",
+        "content": "OK. Is anyone else sick at home?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh everybody's been well."
+      },
+      {
+        "role": "user",
+        "content": "OK, um any reason to believe that you've been around any sick contacts recently?"
+      },
+      {
+        "role": "assistant",
+        "content": "Um possibly, um I mean, I'm in sales, so meeting with clients all day, um maybe one of them were sick."
+      },
+      {
+        "role": "user",
+        "content": "Yeah, yeah for sure. Um, any travel recently?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh no travel, all the meetings have been in the city."
+      },
+      {
+        "role": "user",
+        "content": "OK, OK good. So those were all the questions that I had for you today. Did you have any questions of your own or anything that you wanted to discuss today that I missed?"
+      },
+      {
+        "role": "assistant",
+        "content": "Um no, that, I was just worried about uh Covid."
+      },
+      {
+        "role": "user",
+        "content": "Yeah, so that's definitely top on the list right now for things that we have to rule you out for. Um so we'll take a swab today, we'll send it off um for those PCR results, you should hear back in 24 to 48 hours. Uh in the meantime, you should isolate for 14 days, and that includes from family members when possible, and public health will get in touch with you if those results are positive and so they can they can do some contact tracing. If it's not Covid, it could be another viral illness that's going around, and I guess the best therapy for that is staying hydrated, um getting good sleep, and eating nutritious foods. Uh but if your symptoms get worse, like you're running a really high fever, um you're having neurological symptoms like you know seizures or fainting spells, um or if you're having difficulty breathing, um you should come back to the ER. So how does that sound?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, it's really informative. Thank you."
+      },
+      {
+        "role": "user",
+        "content": "Alright, take care."
+      }
+    ]
+  },
+  {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a warm, empathetic GP. Use plain language. Explore ICE (Ideas, Concerns, Expectations)."
+      },
+      {
+        "role": "user",
+        "content": "What brings you in?"
+      },
+      {
+        "role": "assistant",
+        "content": "Hi, uhm, I've just been a little bit worried, that last the couple of months I've noticed that I've been getting more and more out of breath when I've been doing exercise, and I know I got a brother who had a heart issue and I'm just really concerned that I have something wrong with my ticker, just wanted to get it checked out, you know?"
+      },
+      {
+        "role": "user",
+        "content": "Uhm, when did the shortness of breath start?"
+      },
+      {
+        "role": "assistant",
+        "content": "So, this winter specifically, like we haven't been too active because of Covid this year, we've just been staying in the house all last year, but with the snow, I'd be shovelling snow whenever it fell and before I could be able to like 2 years ago be able to clear the driveway, no problem, but now even after half the driveway I've noticed I'm getting consisntely out of breath, I've got this nasty cough and it's prompted my wife to get me to call in, she's a little bit worried."
+      },
+      {
+        "role": "user",
+        "content": "So it's mostly on exertion, it doesn't happen at rest, is that correct?"
+      },
+      {
+        "role": "assistant",
+        "content": "Being out of breath? No, no."
+      },
+      {
+        "role": "user",
+        "content": "No, OK, ok. And has this ever happened to you before?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, about a year and a half ago we went down to Toronto, in order to see the CN tower, and you know, do tourist stuff and we tried we tried to climb a couple flights of stairs to do a little bit, and I could not, I always thought I'm pretty healthy, pretty active but it really took the wind out of my sails, so had to stop, stoop over. Just couldn't do it."
+      },
+      {
+        "role": "user",
+        "content": "Uhm, and how did you manage like how, how was that treated at that time and how did you get better?"
+      },
+      {
+        "role": "assistant",
+        "content": "Oh, I didn't do any. I just attributed to being, I don't know, out of shape a little bit and I worked as a mechanic when I was younger. I was pretty active, but ever since retiring thought I'd keep up, at least my stamina won't go away that quickly, but chalked it up to being out of shape and went home."
+      },
+      {
+        "role": "user",
+        "content": "OK. Uhm, so your symptom, your shortness of breath seems to be getting worse, right?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah."
+      },
+      {
+        "role": "user",
+        "content": "OK, any coughing with that?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, yeah. And not necessarily when I noticed it when I was shovelling the driveway. But I've had a call for the last couple of years and usually in the morning I just bring up a little bit of gunk, but most of my buddies have that, just like a morning cough, you know?"
+      },
+      {
+        "role": "user",
+        "content": "Yeah, and the gunk that you bring up. What color is it?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, yellow, sometimes a little brown."
+      },
+      {
+        "role": "user",
+        "content": "OK, and when did that start?"
+      },
+      {
+        "role": "assistant",
+        "content": "Oh, it's been going on last 10 years. Well, to be honest since I've been like 30, but it's been fairly consistent, last 10 years I'd say."
+      },
+      {
+        "role": "user",
+        "content": "OK, any blood that you bring up?"
+      },
+      {
+        "role": "assistant",
+        "content": "Not that I've noticed, like bright red? No, nothing like that."
+      },
+      {
+        "role": "user",
+        "content": "OK. Any wheeziness?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah yeah, I noticed that when I was showing, yeah when I was out of breath, it sound sounded different sound different than being usually out of breath but it had to. It sounded wheezy."
+      },
+      {
+        "role": "user",
+        "content": "OK. Any chest pain?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, a little bit actually."
+      },
+      {
+        "role": "user",
+        "content": "Uhm, at rest or?"
+      },
+      {
+        "role": "assistant",
+        "content": "Nothing, nothing when I'm not moving."
+      },
+      {
+        "role": "user",
+        "content": "OK, so the chest pain, when did that start?"
+      },
+      {
+        "role": "assistant",
+        "content": "First noticed it this winter on the driveway but it wasn't like I know what they say about a heart attack, supposed to like, the crushing pain in your chest that moves up your neck. Nothing like that. It's like my lungs, my throat. Like you're really, really out of breath, you know?"
+      },
+      {
+        "role": "user",
+        "content": "OK, so you're attributing it mostly to your shortness of breath then?"
+      },
+      {
+        "role": "assistant",
+        "content": "I think so. I really hope this is my heart. I've never had a heart attack."
+      },
+      {
+        "role": "user",
+        "content": "Yeah. Where in your chest is this chest pain happening like is it central? Is it more towards the left, towards the right?"
+      },
+      {
+        "role": "assistant",
+        "content": "It was kind of both sides."
+      },
+      {
+        "role": "user",
+        "content": "OK."
+      },
+      {
+        "role": "assistant",
+        "content": "It was, Was we all across my chest, to be honest it was only the one time that was really struggling and I coughed up a bit, but yeah."
+      },
+      {
+        "role": "user",
+        "content": "OK, any pain in your calves or legs, well after you walk a certain distance?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, no."
+      },
+      {
+        "role": "user",
+        "content": "No. Do you ever feel like your heart's racing?"
+      },
+      {
+        "role": "assistant",
+        "content": "Felt like my heart was racing after that much activity, but no, not usually."
+      },
+      {
+        "role": "user",
+        "content": "OK. How about swelling in your limbs?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, nothing like that."
+      },
+      {
+        "role": "user",
+        "content": "OK, any fainting spells or dizziness?"
+      },
+      {
+        "role": "assistant",
+        "content": "No never fainted in my life."
+      },
+      {
+        "role": "user",
+        "content": "OK. Any confusion, memory loss?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, nothing like that."
+      },
+      {
+        "role": "user",
+        "content": "Headaches?"
+      },
+      {
+        "role": "assistant",
+        "content": "Headaches, you know I do get headaches from time to time. I associate them with stress, but I haven't been too stressed out recently so nothing in the last couple of years."
+      },
+      {
+        "role": "user",
+        "content": "OK, any neck stiffness?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, no."
+      },
+      {
+        "role": "user",
+        "content": "No, OK. Any sensitivity to light or loud sounds associated with that headache?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, nothing like that."
+      },
+      {
+        "role": "user",
+        "content": "OK, any weight loss?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, I wish."
+      },
+      {
+        "role": "user",
+        "content": "OK. Fevers?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "Rashes?"
+      },
+      {
+        "role": "assistant",
+        "content": "You know I got these weird things on my head. I think mainly because of the sun. Like these brown patches, but that wouldn't be a rash, would it?"
+      },
+      {
+        "role": "user",
+        "content": "I'd have to examine that closer. If you think it's associated with the sun, it could be something like seborrheic keratosis, but I'd have to see what they look like so we can take a look at that later, if that's OK. And so any changes in your vision or hearing?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "No. Stuffy nose, runny nose?"
+      },
+      {
+        "role": "assistant",
+        "content": "Had a bit of a cold couple months ago, but no, nothing recent."
+      },
+      {
+        "role": "user",
+        "content": "Sore throat?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, a little bit after the cough. I had a little bit of a sore throat but went away pretty quickly."
+      },
+      {
+        "role": "user",
+        "content": "OK. Change in smell or taste?"
+      },
+      {
+        "role": "assistant",
+        "content": "I haven't been able to smell or taste too well for awhile."
+      },
+      {
+        "role": "user",
+        "content": "What's awhile?"
+      },
+      {
+        "role": "assistant",
+        "content": "Ten years, seven years it's been more salt, more spices on my food, you know."
+      },
+      {
+        "role": "user",
+        "content": "OK, OK. Any changes to your bowel habits?"
+      },
+      {
+        "role": "assistant",
+        "content": "Nope, been regular all my life."
+      },
+      {
+        "role": "user",
+        "content": "Nausea, vomiting?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "OK. Joint pain, muscle aches?"
+      },
+      {
+        "role": "assistant",
+        "content": "You know my knees been giving me trouble for awhile, but nothing recent, no."
+      },
+      {
+        "role": "user",
+        "content": "OK, and are you otherwise healthy?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, got high blood pressure. See the doc about that. Uhm, high cholesterol, see the doc about that. And yeah, I don't know. Got into a car crash my 40s. Broke my arm one time. Nothing else really."
+      },
+      {
+        "role": "user",
+        "content": "OK, any surgeries?"
+      },
+      {
+        "role": "assistant",
+        "content": "Uh, I think I had my appendix out when I was, yeah I had my appendix out when I was like 12."
+      },
+      {
+        "role": "user",
+        "content": "OK."
+      },
+      {
+        "role": "assistant",
+        "content": "Never been under the knife since then."
+      },
+      {
+        "role": "user",
+        "content": "OK, great. Have you been taking any medications for that high blood pressure?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah doc's got me on two blood pressure medications and one cholesterol medication."
+      },
+      {
+        "role": "user",
+        "content": "OK, and do you take those frequently?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, everyday."
+      },
+      {
+        "role": "user",
+        "content": "OK, good. Any other medications?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "Are you up to date with all your immunizations?"
+      },
+      {
+        "role": "assistant",
+        "content": "Jeez, been a while since I've gotten immunization. Think, I think so."
+      },
+      {
+        "role": "user",
+        "content": "OK. Once you turn 65, they usually give you shing-shingrex for, to prevent shingles and a pneumovax vaccine to prevent pneumococcal infections. Have you had those ones?"
+      },
+      {
+        "role": "assistant",
+        "content": "Nope."
+      },
+      {
+        "role": "user",
+        "content": "No, OK. So if you're interested in getting those, we can discuss that at some point today as well,"
+      },
+      {
+        "role": "assistant",
+        "content": "OK."
+      },
+      {
+        "role": "user",
+        "content": "Do you have any allergies?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "No, OK. Any, OK, so you mentioned a family history of your brother having congenital heart disease. Any other heart diseases that run in the family?"
+      },
+      {
+        "role": "assistant",
+        "content": "Congenital. What's that mean?"
+      },
+      {
+        "role": "user",
+        "content": "Like something that you're born with."
+      },
+      {
+        "role": "assistant",
+        "content": "No, I don't think he's ever born thing he had a couple of heart attacks."
+      },
+      {
+        "role": "user",
+        "content": "Oh heart attacks. OK sorry I must have misinterpreted that. How old was he when he had his first heart attack?"
+      },
+      {
+        "role": "assistant",
+        "content": "He's older me by five years, but he had the first one when he was younger than I am now. Like 62 was the first one, another one at 65."
+      },
+      {
+        "role": "user",
+        "content": "OK. Uhm, did, is he, did they ever find a cause for his heart attack? Is he a healthy person?"
+      },
+      {
+        "role": "assistant",
+        "content": "Healthy, he's healthy. I you know I wouldn't call him too healthy of a guy either. He's a hard liver, let's call him that. I have why it happened, I think, obviously it's his diet man. He's like a hog. Steaks, butter, bacon I'm  assuming that's what did him in."
+      },
+      {
+        "role": "user",
+        "content": "Oh yikes, OK. OK, uh any other heart conditions that run in the family or other members of the family experiencing heart attacks?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yep, dad died young from a high heart attack. He was, he died younger than I am now. He passed away at 66."
+      },
+      {
+        "role": "user",
+        "content": "Oh, I'm sorry to hear that."
+      },
+      {
+        "role": "assistant",
+        "content": "Oh it's been years now. It is what it is. His grandmother had a stroke. High blood pressure on my mom side. High cholesterol on my mom side too. But yeah, awful heart attacks on my father side of the family."
+      },
+      {
+        "role": "user",
+        "content": "OK. Any other lung, any lung conditions that run in the family?"
+      },
+      {
+        "role": "assistant",
+        "content": "None that come to mind."
+      },
+      {
+        "role": "user",
+        "content": "OK and do you smoke?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, yeah I smoke."
+      },
+      {
+        "role": "user",
+        "content": "OK, how much do you smoke?"
+      },
+      {
+        "role": "assistant",
+        "content": "I cut it back, about half a pack a day for the last two years now."
+      },
+      {
+        "role": "user",
+        "content": "OK and before that?"
+      },
+      {
+        "role": "assistant",
+        "content": "I was pretty much a pack a day. Maybe, well, when it was bad, 2 packs a day, but I've been smoking yeah, since about, when do they start working at the shop, like 17, everyone there smokes."
+      },
+      {
+        "role": "user",
+        "content": "Oh OK Wow yeah well then but it's good that you cut down, that's good. Do you, do any other recreational drugs like marijuana, cocaine, heroin, anything?"
+      },
+      {
+        "role": "assistant",
+        "content": "I'll smoke weed at the shop every Friday, but I'm not huge fan of it to be honest."
+      },
+      {
+        "role": "user",
+        "content": "OK. And how much do you smoke every Friday?"
+      },
+      {
+        "role": "assistant",
+        "content": "Both are about four joints, seven people, so I don't know what that is. Half a gram?"
+      },
+      {
+        "role": "user",
+        "content": "Half a joint? OK, yeah. OK, and do you drink?"
+      },
+      {
+        "role": "assistant",
+        "content": "Oh yeah."
+      },
+      {
+        "role": "user",
+        "content": "How much do you drink?"
+      },
+      {
+        "role": "assistant",
+        "content": "See, Christmas was about the last time I went out like a beer or two. Uhm, weekends but when families in town will we'll go whole hog. I'll drink maybe 20 beer."
+      },
+      {
+        "role": "user",
+        "content": "Oh OK, OK. And yeah you should, have you thought about cutting that down?"
+      },
+      {
+        "role": "assistant",
+        "content": "You gotta keep up with the family, you know, you can't let them embarrass you like that."
+      },
+      {
+        "role": "user",
+        "content": "Let's, I understand that, but also you know, it's important to take care of your health and slow and steady wins the race, right?"
+      },
+      {
+        "role": "assistant",
+        "content": "I'll keep that in mind, doc, I'll keep that in mind."
+      },
+      {
+        "role": "user",
+        "content": "Yeah, and how's your diet?"
+      },
+      {
+        "role": "assistant",
+        "content": "Been pretty good. The wife's been on a, on a health food craze last five years. Vegetables, I don't know, I eat whatever she cooks, basically."
+      },
+      {
+        "role": "user",
+        "content": "OK. Uhm that's good, and in terms of exercise, do you get to move around?"
+      },
+      {
+        "role": "assistant",
+        "content": "I used to be pretty active. I used to bike around, but 'cause of Covid I've just been indoors all this time. So no, not much."
+      },
+      {
+        "role": "user",
+        "content": "OK. OK, well it's good to go out for a walk once in awhile. I think that's allowed during Covid as long as you're being safe. And who do you live with at home?"
+      },
+      {
+        "role": "assistant",
+        "content": "I live with my wife."
+      },
+      {
+        "role": "user",
+        "content": "OK, any children?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, I've got three kids, one for my first marriage, two with the Mrs. right now."
+      },
+      {
+        "role": "user",
+        "content": "OK, and do you get to see them often?"
+      },
+      {
+        "role": "assistant",
+        "content": "Yeah, daughter lives in town and get to see her and grand kid a bit, the other boy works in Fort Mac and my oldest son, he's out east."
+      },
+      {
+        "role": "user",
+        "content": "OK, OK, and have you had any contact with people who've been sick recently?"
+      },
+      {
+        "role": "assistant",
+        "content": "No, we've been keeping entirely to ourselves. You can get our groceries ordered to the house."
+      },
+      {
+        "role": "user",
+        "content": "OK. And how about travel? Any recent travel?"
+      },
+      {
+        "role": "assistant",
+        "content": "No."
+      },
+      {
+        "role": "user",
+        "content": "No, OK. Uhm, and then lastly, just wanted to ask you because you have been smoking for a long time, have you ever been diagnosed with something called COPD?"
+      },
+      {
+        "role": "assistant",
+        "content": "Doesn't ring a bell."
+      },
+      {
+        "role": "user",
+        "content": "No, OK. Have you ever had any pulmonary function tests or chest x-rays done in the past?"
+      },
+      {
+        "role": "assistant",
+        "content": "Chest x-ray, I think they did a chest x-ray after the car crash."
+      },
+      {
+        "role": "user",
+        "content": "OK."
+      },
+      {
+        "role": "assistant",
+        "content": "But I can't think of getting one recently, no."
+      },
+      {
+        "role": "user",
+        "content": "OK. Alright well those are all the questions that I had for you. Did you have any questions for me?"
+      },
+      {
+        "role": "assistant",
+        "content": "So this is a hard, like, should I be worried?"
+      },
+      {
+        "role": "user",
+        "content": "Yeah, you know what? It sounds from what you're telling me, it sounds like you have shortness of breath on exertion, and it sounds like you have a cough with still producing some phlegm. It doesn't seem like you have any systemic symptoms of infection, so I'm not too worried about that. And then in terms of your heart, you mentioned you had that chest pain once, but it really does sound more like a lung problem to me than a heart problem to me right now, but of course we'll do all the necessary investigations to rule out any heart stuff. But right now, I'm thinking it could be something called COPD, chronic obstructive pulmonary disorder because of your smoking history. Uhm, so we'll start with doing a pulmonary function test and chest x-ray, and I we'll try to go from there. If it is COPD we'll likely put you on a, like a puffer for that. A like a lot a short or long acting beta agonist, that's what it's called. So if your symptoms don't get better with that, we'll do other investigations to try to figure out what this is. How does that sound?"
+      },
+      {
+        "role": "assistant",
+        "content": "Sounds great, doc. Thanks a million."
+      },
+      {
+        "role": "user",
+        "content": "Alright, great thank you."
+      }
+    ]
+  }
+]

@@ -372,6 +372,7 @@
             var slice = text.length > max ? text.substring(0, max) : text;
             var u = new SpeechSynthesisUtterance(slice);
             u.rate = 1;
+            u.pitch = 0.98;
             window.speechSynthesis.speak(u);
             console.log('[LiveAvatar] browser SpeechSynthesis started, chars:', slice.length);
         } catch (e) {

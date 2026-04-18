@@ -12,7 +12,7 @@ namespace ERSimulatorApp.Services
     /// Dev/testing only — unofficial, may break. Decodes MP3 with embedded <c>NLayer</c>; if that fails, uses <c>ffmpeg</c> on PATH when available.
     /// Set <c>ElevenLabs:TtsEngine</c> to <c>MicrosoftEdgeFree</c>.
     /// Tune delivery with <c>ElevenLabs:EdgeTtsVoice</c> (e.g. male <c>en-US-GuyNeural</c> for instructor avatars),
-    /// <c>EdgeTtsProsodyPitch</c> (e.g. <c>+20%</c>, <c>+40Hz</c>, <c>+1st</c>), and <c>EdgeTtsProsodyRate</c> (e.g. <c>-60%</c> slower, <c>+5%</c> faster).
+    /// <c>EdgeTtsProsodyPitch</c> (e.g. <c>+18%</c>, <c>+40Hz</c>, <c>+1st</c>), and <c>EdgeTtsProsodyRate</c> (e.g. <c>-60%</c> slower, <c>+5%</c> faster).
     /// </summary>
     public sealed class MicrosoftEdgeFreePcmTtsService : IElevenLabsTextToSpeechService
     {
