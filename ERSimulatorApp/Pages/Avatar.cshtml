@@ -74,15 +74,33 @@
                             <i class="fas fa-stop me-2"></i>Stop
                         </button>
                     </div>
-                    <div class="mt-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div class="mt-2 d-flex justify-content-between align-items-start flex-wrap gap-2">
                         <small class="text-muted">
                             Type or use voice
                         </small>
-                        <div class="d-flex align-items-center gap-2">
-                            <label class="d-flex align-items-center gap-1 small text-muted mb-0 cursor-pointer">
-                                <input type="checkbox" id="useLocalToggle" class="form-check-input" title="Use local Ollama instead of Claude (debugging)">
-                                <span>Use local</span>
-                            </label>
+                        <div class="avatar-llm-controls small text-muted">
+                            <div class="mb-1">Answer engine</div>
+                            <div class="d-flex flex-wrap gap-2 mb-2" role="group" aria-label="Answer engine">
+                                <div class="form-check form-check-inline m-0">
+                                    <input class="form-check-input" type="radio" name="avatarLlm" id="avatarLlmClaude" value="claude" checked>
+                                    <label class="form-check-label" for="avatarLlmClaude" title="Anthropic via RAG service">Claude</label>
+                                </div>
+                                <div class="form-check form-check-inline m-0">
+                                    <input class="form-check-input" type="radio" name="avatarLlm" id="avatarLlmLocal" value="local">
+                                    <label class="form-check-label" for="avatarLlmLocal" title="Local Ollama (see RAG:Model)">Local</label>
+                                </div>
+                            </div>
+                            <div class="mb-1">References (Chroma + knowledge API when on)</div>
+                            <div class="d-flex flex-wrap gap-2" role="group" aria-label="Reference retrieval">
+                                <div class="form-check form-check-inline m-0">
+                                    <input class="form-check-input" type="radio" name="avatarRef" id="avatarRefOn" value="on" checked>
+                                    <label class="form-check-label" for="avatarRefOn">On</label>
+                                </div>
+                                <div class="form-check form-check-inline m-0">
+                                    <input class="form-check-input" type="radio" name="avatarRef" id="avatarRefOff" value="off">
+                                    <label class="form-check-label" for="avatarRefOff" title="Model answers from general knowledge; no document retrieval">Off (general only)</label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div id="recordingStatus" class="mt-2" hidden>
@@ -129,6 +147,15 @@
     // ============================================
     const API_BASE = '/api/avatar/v2/streaming';
     const KEEPALIVE_INTERVAL_MS = 30000; // HeyGen sessions can close when idle; ping every 30s to reduce "Connection lost"
+
+    function getAvatarUseClaude() {
+        const el = document.getElementById('avatarLlmClaude');
+        return !!(el && el.checked);
+    }
+    function getAvatarUseRag() {
+        const on = document.getElementById('avatarRefOn');
+        return !!(on && on.checked);
+    }
     let liveKitRoom = null;
     let sessionData = null;
     let streamingToken = null; // Cache the token used to create the session
@@ -979,13 +1006,14 @@
             throw new Error('Streaming token is required. Please restart the session.');
         }
 
-        // Default is Claude; "Use local" checked = Ollama (debugging)
-        const useClaude = document.getElementById('useLocalToggle')?.checked !== true;
+        const useClaude = getAvatarUseClaude();
+        const useRag = getAvatarUseRag();
         const payload = {
             message: message,
             conversationId: sessionId,
             streamingToken: streamingToken, // Include the cached token
-            useClaude: useClaude
+            useClaude: useClaude,
+            useRag: useRag
         };
 
         console.log('[API] Calling POST', `${API_BASE}/task`, {
@@ -1544,9 +1572,10 @@
             } else {
                 console.warn('[AUDIO] WARNING: streamingToken is missing!');
             }
-            // Default is Claude; "Use local" checked = Ollama (debugging)
-            const useClaude = document.getElementById('useLocalToggle')?.checked !== true;
+            const useClaude = getAvatarUseClaude();
+            const useRag = getAvatarUseRag();
             formData.append('useClaude', useClaude ? 'true' : 'false');
+            formData.append('useRag', useRag ? 'true' : 'false');
 
             // Log FormData contents for debugging
             console.log('[AUDIO] FormData contents:');
@@ -1682,7 +1711,40 @@
     console.log('[INIT] Event listeners attached');
     console.log('[INIT] Use checkVideoState() in console to debug video element');
     console.log('[INIT] Use forceVideoVisible() in console to force video visibility for testing');
-    
+    (function probeAvatarApiHealth() {
+        fetch(`${API_BASE}/health`, { method: 'GET', cache: 'no-store' })
+            .then(function (r) {
+                if (r.ok) {
+                    console.log('[INIT] API health check OK (GET', API_BASE + '/health)');
+                } else {
+                    console.warn('[INIT] API health check HTTP', r.status, r.statusText, '— "Start session" may still work; verify Kestrel and URLs.');
+                }
+            })
+            .catch(function (err) {
+                console.error('[INIT] API not reachable (GET ' + API_BASE + '/health):', err && err.message ? err.message : err);
+                console.error('[INIT] "Start session" will fail until the app accepts connections on this origin. Check systemd/dotnet, port (8081/8443), and firewall.');
+            });
+    })();
+    (function probeKnowledgeDependencies() {
+        fetch(API_BASE + '/health/dependencies', { method: 'GET', cache: 'no-store' })
+            .then(function (r) { return r.json().then(function (j) { return { r: r, j: j }; }); })
+            .then(function (o) {
+                if (!o.r.ok) {
+                    console.warn('[INIT] Knowledge dependency check HTTP', o.r.status, o.r.statusText);
+                    return;
+                }
+                var k = o.j && o.j.knowledge;
+                if (k && k.reachable === false) {
+                    console.warn('[INIT] Knowledge / RAG layer not reachable; Dr. Dexter may use the "reference database unavailable" line. Details:', o.j);
+                } else {
+                    console.log('[INIT] Knowledge / RAG dependency check OK', k);
+                }
+            })
+            .catch(function (err) {
+                console.warn('[INIT] Could not load ' + API_BASE + '/health/dependencies (non-fatal):', err && err.message ? err.message : err);
+            });
+    })();
+
     // Periodically check video state (for debugging)
     setInterval(() => {
         if (isSessionActive && elements.video && !elements.video.hidden) {

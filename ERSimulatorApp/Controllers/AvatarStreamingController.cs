@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 
 namespace ERSimulatorApp.Controllers
 {
@@ -15,12 +16,16 @@ namespace ERSimulatorApp.Controllers
     [Route("api/avatar/v2/streaming")]
     public class AvatarStreamingController : ControllerBase
     {
+        // Must match RAGService default when RAG:BaseUrl is unset, so this probe tests the same host as the LLM uses.
+        private const string DefaultRagChatCompletionsBaseUrl = "https://aicore-llmserver-healthcare.tra220030.projects.jetstream-cloud.org/v1/chat/completions";
+
         private readonly IHeyGenStreamingService _heyGenService;
         private readonly ILLMService _llmService;
         private readonly IElevenLabsSpeechToTextService _speechToTextService;
         private readonly IElevenLabsTextToSpeechService _ttsService;
         private readonly ILogger<AvatarStreamingController> _logger;
         private readonly IConfiguration _configuration;
+        private readonly IHttpClientFactory _httpClientFactory;
         private readonly string _sourceDocumentsPath;
         private readonly int _maxSpeechChars;
 
@@ -31,6 +36,7 @@ namespace ERSimulatorApp.Controllers
             IElevenLabsTextToSpeechService ttsService,
             ILogger<AvatarStreamingController> logger,
             IConfiguration configuration,
+            IHttpClientFactory httpClientFactory,
             IWebHostEnvironment environment)
         {
             _heyGenService = heyGenService;
@@ -39,6 +45,7 @@ namespace ERSimulatorApp.Controllers
             _ttsService = ttsService;
             _logger = logger;
             _configuration = configuration;
+            _httpClientFactory = httpClientFactory;
 
             var configuredPath = configuration["RAG:SourceDocumentsPath"];
             if (string.IsNullOrWhiteSpace(configuredPath))
@@ -102,6 +109,107 @@ namespace ERSimulatorApp.Controllers
             if (lastSpace > _maxSpeechChars / 2)
                 truncated = truncated.Substring(0, lastSpace);
             return truncated.TrimEnd() + "…";
+        }
+
+        /// <summary>Lightweight GET for browser health checks. POST-only routes like <c>session/create</c> return 405 for GET; use this instead.</summary>
+        [HttpGet("health")]
+        public IActionResult GetHealth() =>
+            Ok(new { ok = true, service = "avatar/v2/streaming" });
+
+        /// <summary>
+        /// RAG + optional Ollama reachability (short HTTP probes). Use when Dr. Dexter says the reference database is unavailable: fix what reports <c>reachable: false</c>.
+        /// </summary>
+        [HttpGet("health/dependencies")]
+        public async Task<IActionResult> GetHealthDependencies(CancellationToken cancellationToken)
+        {
+            var useLocalOllama = _configuration.GetValue<bool>("RAG:UseLocalOllama");
+            object knowledge;
+
+            if (useLocalOllama)
+            {
+                var endpoint = _configuration["Ollama:Endpoint"]?.Trim();
+                var model = _configuration["Ollama:Model"]?.Trim() ?? "";
+                if (string.IsNullOrEmpty(endpoint) || !Uri.TryCreate(endpoint, UriKind.Absolute, out var ollamaUri))
+                {
+                    knowledge = new
+                    {
+                        mode = "useLocalOllama",
+                        reachable = false,
+                        error = "Ollama:Endpoint is missing or not a valid absolute URL (e.g. http://127.0.0.1:11434/api/chat).",
+                        ollamaModel = string.IsNullOrEmpty(model) ? (string?)null : model
+                    };
+                }
+                else
+                {
+                    var ollamaBase = $"{ollamaUri.Scheme}://{ollamaUri.Authority}";
+                    var tagsUrl = ollamaBase + "/api/tags";
+                    var (ok, err) = await HttpProbeGetAsync(tagsUrl, cancellationToken).ConfigureAwait(false);
+                    knowledge = new
+                    {
+                        mode = "useLocalOllama",
+                        reachable = ok,
+                        probedGet = tagsUrl,
+                        error = ok ? (string?)null : err,
+                        ollamaModel = string.IsNullOrEmpty(model) ? (string?)null : model
+                    };
+                }
+            }
+            else
+            {
+                var ragBase = _configuration["RAG:BaseUrl"]?.Trim();
+                if (string.IsNullOrEmpty(ragBase))
+                    ragBase = DefaultRagChatCompletionsBaseUrl;
+                if (!Uri.TryCreate(ragBase, UriKind.Absolute, out var u) || (u.Scheme != "http" && u.Scheme != "https"))
+                {
+                    knowledge = new
+                    {
+                        mode = "ragHttp",
+                        reachable = false,
+                        error = "RAG:BaseUrl (after default fallback) is not a valid absolute http(s) URL."
+                    };
+                }
+                else
+                {
+                    // Python RAG (FastAPI) serves GET /health on same host:port as /v1/... (not guaranteed for all remote hosts).
+                    var healthUrl = new UriBuilder(u.Scheme, u.Host, u.Port, "/health").Uri.ToString();
+                    var (ok, err) = await HttpProbeGetAsync(healthUrl, cancellationToken).ConfigureAwait(false);
+                    knowledge = new
+                    {
+                        mode = "ragHttp",
+                        reachable = ok,
+                        baseUrlHost = u.Host,
+                        baseUrlPathPrefix = u.AbsolutePath.Length > 0 ? (u.AbsolutePath.Length > 48 ? u.AbsolutePath.Substring(0, 45) + "…" : u.AbsolutePath) : "/",
+                        probedGet = healthUrl,
+                        error = ok ? (string?)null : err
+                    };
+                }
+            }
+
+            return Ok(new
+            {
+                ok = true,
+                service = "avatar/v2/streaming/dependencies",
+                app = new { kestrel = "up" },
+                knowledge
+            });
+        }
+
+        private async Task<(bool ok, string? error)> HttpProbeGetAsync(string url, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var client = _httpClientFactory.CreateClient("RagDependencyProbe");
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                    .ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                    return (true, null);
+                return (false, $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
         /// <summary>
@@ -206,7 +314,11 @@ namespace ERSimulatorApp.Controllers
         /// Complete voice conversation flow
         /// </summary>
         [HttpPost("audio")]
-        public async Task<IActionResult> ProcessAudio([FromForm] string conversationId, [FromForm] string? streamingToken, [FromForm] bool useClaude = false)
+        public async Task<IActionResult> ProcessAudio(
+            [FromForm] string conversationId,
+            [FromForm] string? streamingToken,
+            [FromForm] bool useClaude = false,
+            [FromForm] bool useRag = true)
         {
             try
             {
@@ -356,13 +468,13 @@ namespace ERSimulatorApp.Controllers
                     });
                 }
 
-                // Step 2: Get RAG response from medical knowledge base (Ollama or Claude per user toggle)
+                // Step 2: Get RAG response from medical knowledge base (Ollama or Claude per user; useRag = Chroma + knowledge API)
                 string? modelOverride = useClaude ? (_configuration["RAG:ClaudeModel"]?.Trim() ?? "claude-opus-4-6") : null;
-                _logger.LogInformation("Step 2: Querying RAG database for medical information (UseClaude: {UseClaude})...", useClaude);
+                _logger.LogInformation("Step 2: LLM (UseClaude: {UseClaude}, UseRag: {UseRag})...", useClaude, useRag);
                 LLMResponse ragResponse;
                 try
                 {
-                    ragResponse = await _llmService.GetResponseAsync(transcript, modelOverride);
+                    ragResponse = await _llmService.GetResponseAsync(transcript, modelOverride, useRag);
                     _logger.LogInformation("RAG database returned response with {SourceCount} medical source references", 
                         ragResponse.Sources?.Count ?? 0);
                 }
@@ -578,8 +690,8 @@ namespace ERSimulatorApp.Controllers
                 {
                     var promptWithContext = BuildPromptWithAvatarContext(request.Message, historySnapshot);
                     string? modelOverride = request.UseClaude ? (_configuration["RAG:ClaudeModel"]?.Trim() ?? "claude-opus-4-6") : null;
-                    _logger.LogInformation("Querying RAG database for medical information (with conversation context, UseClaude: {UseClaude})...", request.UseClaude);
-                    ragResponse = await _llmService.GetResponseAsync(promptWithContext, modelOverride);
+                    _logger.LogInformation("Querying LLM (UseClaude: {UseClaude}, UseRag: {UseRag})...", request.UseClaude, request.UseRag);
+                    ragResponse = await _llmService.GetResponseAsync(promptWithContext, modelOverride, request.UseRag);
                 }
 
                 var responseText = RemoveSourcesSection(ragResponse.Response ?? string.Empty);

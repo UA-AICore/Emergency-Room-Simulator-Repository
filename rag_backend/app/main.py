@@ -294,6 +294,8 @@ class OpenAIChatRequest(BaseModel):
     messages: List[ChatMessage]
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = 2000
+    # When false, skip Chroma + Knowledge API retrieval and answer from the LLM’s general knowledge only
+    use_rag: bool = True
 
 
 def _use_claude(model: Optional[str]) -> bool:
@@ -606,6 +608,48 @@ def _rag_answer(
     return answer, previews
 
 
+def _general_only_answer(
+    question: str,
+    model: Optional[str] = None,
+    prompt_for_llm: Optional[str] = None,
+) -> tuple[str, list[str]]:
+    """LLM only — no Chroma or Knowledge API retrieval. Same model routing (Claude / remote / Ollama) as RAG path."""
+    has_conversation = prompt_for_llm is not None and len((prompt_for_llm or "").strip()) > 0
+    system_prompt = (
+        "You are an ER attending talking to a resident or student. Answer from well-established "
+        "emergency and general clinical knowledge. Be concise, accurate, and direct.\n"
+        "CRITICAL: You MUST respond in the EXACT same language as the student's current question.\n"
+        "Keep the answer to one or two short paragraphs. Sound like a person, not a document.\n"
+    )
+    lang_hint = _language_hint(prompt_for_llm if has_conversation else question)
+    if has_conversation:
+        user_content = f"{lang_hint}{prompt_for_llm.strip()}"
+    else:
+        user_content = f"{lang_hint}Question: {question}"
+    try:
+        if _use_claude(model):
+            answer = call_claude(system=system_prompt, user_content=user_content, max_tokens=1024)
+        elif USE_REMOTE_LLM:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+            answer = call_remote_chat(messages, temperature=0.1, max_tokens=400)
+        else:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ]
+            answer = call_local_ollama(messages)
+    except Exception as e:
+        logging.warning("General (no RAG) LLM call failed: %s", e)
+        return (
+            "I couldn't get an answer from the model just now. Please try again in a moment.",
+            [],
+        )
+    return answer, []
+
+
 # ---------- Routes ----------
 
 @app.get("/health")
@@ -753,7 +797,17 @@ def chat_completions(req: OpenAIChatRequest):
     has_conversation = "Student's current question:" in full_prompt or "Recent conversation:" in full_prompt
     prompt_for_llm = full_prompt if has_conversation else None
     requested_model = (req.model or "").strip() or None
-    answer, previews = _rag_answer(question_for_rag, top_k=5, model=requested_model, prompt_for_llm=prompt_for_llm)
+
+    if not req.use_rag:
+        answer, previews = _general_only_answer(
+            question_for_rag, model=requested_model, prompt_for_llm=prompt_for_llm
+        )
+        retrieval = "off"
+    else:
+        answer, previews = _rag_answer(
+            question_for_rag, top_k=5, model=requested_model, prompt_for_llm=prompt_for_llm
+        )
+        retrieval = _retrieval_source_label()
 
     return {
         "id": "rag-chat-" + str(uuid.uuid4()),
@@ -767,6 +821,6 @@ def chat_completions(req: OpenAIChatRequest):
         ],
         "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         "context_preview": previews,
-        "retrieval_source": _retrieval_source_label(),
+        "retrieval_source": retrieval,
     }
 

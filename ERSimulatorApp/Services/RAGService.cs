@@ -44,13 +44,15 @@ namespace ERSimulatorApp.Services
         /// <summary>Read RAG ApiKey from config on each use.</summary>
         private string GetRagApiKey() => _configuration["RAG:ApiKey"] ?? string.Empty;
 
-        public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null)
+        public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null, bool useRag = true)
         {
             var effectiveModel = modelOverride ?? _model;
             // Use local Ollama as primary LLM when configured (no RAG HTTP server or OpenAI needed)
             if (_useLocalOllama && !string.IsNullOrEmpty(_ollamaEndpoint) && !string.IsNullOrEmpty(_ollamaModel))
             {
-                var ollamaAnswer = await TryOllamaFallbackAsync(prompt);
+                if (!useRag)
+                    _logger.LogInformation("UseRag=false; RAG:UseLocalOllama bypasses the Python RAG server — answering with local Ollama only (no Chroma / knowledge API).");
+                var ollamaAnswer = await TryOllamaFallbackAsync(prompt, generalKnowledgeOnly: !useRag);
                 if (!string.IsNullOrWhiteSpace(ollamaAnswer))
                 {
                     _logger.LogInformation("Using local Ollama for avatar response (RAG:UseLocalOllama=true).");
@@ -61,7 +63,9 @@ namespace ERSimulatorApp.Services
                         IsFallback = false
                     };
                 }
-                _logger.LogWarning("RAG:UseLocalOllama is true but Ollama call failed; returning fallback (not calling RAG URL).");
+                _logger.LogWarning(
+                    "RAG:UseLocalOllama is true but Ollama call failed; returning fallback (not calling RAG URL). Ollama:Endpoint={Endpoint} Ollama:Model={Model}",
+                    _ollamaEndpoint, _ollamaModel);
                 return new LLMResponse
                 {
                     Response = FallbackMessage,
@@ -75,19 +79,19 @@ namespace ERSimulatorApp.Services
 
             try
             {
-                // OpenAI-compatible chat completions request format (model tells RAG backend: ollama vs claude)
-                var ragRequest = new
+                // OpenAI-compatible chat completions (model = Claude vs Ollama; use_rag = Chroma + knowledge API vs general only)
+                var payload = new Dictionary<string, object?>
                 {
-                    model = effectiveModel,
-                    messages = new[]
+                    ["model"] = effectiveModel,
+                    ["messages"] = new object[]
                     {
                         new { role = "user", content = prompt }
                     },
-                    temperature = 0.7,
-                    max_tokens = 2000
+                    ["temperature"] = 0.7,
+                    ["max_tokens"] = 2000,
+                    ["use_rag"] = useRag
                 };
-
-                var ragJson = JsonSerializer.Serialize(ragRequest);
+                var ragJson = JsonSerializer.Serialize(payload);
                 var ragContent = new StringContent(ragJson, Encoding.UTF8, "application/json");
 
                 _logger.LogInformation("Sending prompt to RAG server at {RagUrl}: {PromptPreview}...",
@@ -110,7 +114,19 @@ namespace ERSimulatorApp.Services
                 if (!ragResponse.IsSuccessStatusCode)
                 {
                     var errorContent = await ragResponse.Content.ReadAsStringAsync();
-                    _logger.LogError($"RAG API error: {ragResponse.StatusCode} - {errorContent}");
+                    var bodyPreview = errorContent.Length > 200 ? errorContent.Substring(0, 200) + "…" : errorContent;
+                    if (Uri.TryCreate(ragBaseUrl, UriKind.Absolute, out var uErr))
+                    {
+                        var pathPreview = uErr.AbsolutePath.Length > 0
+                            ? (uErr.AbsolutePath.Length > 32 ? uErr.AbsolutePath.Substring(0, 29) + "…" : uErr.AbsolutePath)
+                            : "/";
+                        _logger.LogError("RAG API error {Status} from {Scheme}://{Host}{Path} body: {Body}",
+                            ragResponse.StatusCode, uErr.Scheme, uErr.Host, pathPreview, bodyPreview);
+                    }
+                    else
+                    {
+                        _logger.LogError("RAG API error: {Status} - {Content}", ragResponse.StatusCode, errorContent);
+                    }
                     throw new HttpRequestException($"RAG API returned {ragResponse.StatusCode}: {errorContent}");
                 }
 
@@ -346,11 +362,19 @@ namespace ERSimulatorApp.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error calling RAG API");
+                if (Uri.TryCreate(ragBaseUrl, UriKind.Absolute, out var uLog))
+                {
+                    _logger.LogError(ex, "Error calling RAG API (RAG:BaseUrl host {Host} path {Path})",
+                        uLog.Host, uLog.AbsolutePath);
+                }
+                else
+                {
+                    _logger.LogError(ex, "Error calling RAG API (RAG:BaseUrl is not a valid absolute URI: {RagBase})", ragBaseUrl);
+                }
                 // If Ollama is configured, try local LLM so the avatar still gives an answer (without PDF context)
                 if (!string.IsNullOrEmpty(_ollamaEndpoint) && !string.IsNullOrEmpty(_ollamaModel))
                 {
-                    var ollamaAnswer = await TryOllamaFallbackAsync(prompt);
+                    var ollamaAnswer = await TryOllamaFallbackAsync(prompt, generalKnowledgeOnly: !useRag);
                     if (!string.IsNullOrWhiteSpace(ollamaAnswer))
                     {
                         _logger.LogInformation("RAG unavailable; used Ollama fallback for avatar response.");
@@ -373,16 +397,19 @@ namespace ERSimulatorApp.Services
 
         private const string OllamaSystemDrDexter = "You are Dr. Dexter in a medical training simulation. Always respond in character as the instructor. Do not refuse; give a direct, helpful teaching response every time. Keep your answer to 2-4 sentences so the student can follow along.";
 
-        private async Task<string?> TryOllamaFallbackAsync(string prompt)
+        private async Task<string?> TryOllamaFallbackAsync(string prompt, bool generalKnowledgeOnly = false)
         {
             try
             {
+                var system = generalKnowledgeOnly
+                    ? "You are Dr. Dexter in a medical training simulation. Answer from general emergency and clinical knowledge (not from a specific course pack). Be concise, 2-4 sentences, in the same language as the student."
+                    : OllamaSystemDrDexter;
                 var requestBody = new
                 {
                     model = _ollamaModel,
                     messages = new[]
                     {
-                        new { role = "system", content = OllamaSystemDrDexter },
+                        new { role = "system", content = system },
                         new { role = "user", content = prompt }
                     },
                     stream = false,

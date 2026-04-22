@@ -8,7 +8,7 @@ namespace ERSimulatorApp.Services
 {
     public interface ILLMService
     {
-        Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null);
+        Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null, bool useRag = true);
     }
 
     public class OllamaService : ILLMService
@@ -26,8 +26,9 @@ namespace ERSimulatorApp.Services
             _model = configuration["Ollama:Model"] ?? "alibayram/medgemma:27b";
         }
 
-        public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null)
+        public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null, bool useRag = true)
         {
+            _ = useRag;
             try
             {
                 _logger.LogInformation($"Sending prompt to Ollama: {prompt.Substring(0, Math.Min(50, prompt.Length))}...");
