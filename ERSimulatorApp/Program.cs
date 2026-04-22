@@ -250,4 +250,21 @@ app.UseAuthorization();
 app.MapRazorPages();
 app.MapControllers();
 
+// Startup check: warn if RAG backend is unreachable (common when running .NET without ./start-app.sh)
+var ragBaseUrl = builder.Configuration["RAG:BaseUrl"]?.Trim() ?? "http://127.0.0.1:8010/v1/chat/completions";
+var ragHealthUrl = ragBaseUrl.Replace("/v1/chat/completions", "/health", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
+var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+try
+{
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+    using var client = new HttpClient();
+    var response = client.GetAsync(ragHealthUrl, cts.Token).GetAwaiter().GetResult();
+    if (!response.IsSuccessStatusCode)
+        startupLogger.LogWarning("RAG backend at {Url} returned {Code}. Reference database may show as unavailable.", ragHealthUrl, response.StatusCode);
+}
+catch (Exception ex)
+{
+    startupLogger.LogWarning(ex, "RAG backend not reachable at {Url}. Reference database will show as unavailable. Start the RAG backend first (e.g. ./start-app.sh from repo root).", ragHealthUrl);
+}
+
 app.Run();
