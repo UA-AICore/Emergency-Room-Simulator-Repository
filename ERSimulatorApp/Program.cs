@@ -253,7 +253,6 @@ app.MapControllers();
 // Startup check: warn if RAG backend is unreachable (common when running .NET without ./start-app.sh)
 var ragBaseUrl = builder.Configuration["RAG:BaseUrl"]?.Trim() ?? "http://127.0.0.1:8010/v1/chat/completions";
 var ragHealthUrl = ragBaseUrl.Replace("/v1/chat/completions", "/health", StringComparison.OrdinalIgnoreCase).TrimEnd('/');
-var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
 try
 {
     using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));

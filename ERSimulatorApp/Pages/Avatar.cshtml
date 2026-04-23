@@ -3,8 +3,8 @@
 @{
     ViewData["Title"] = "Medical Instructor Avatar";
 }
-
-<link rel="stylesheet" href="~/css/custom.css" />
+<link rel="stylesheet" href="~/css/custom.css" asp-append-version="true" />
+<link rel="stylesheet" href="~/css/avatar-mobile.css" asp-append-version="true" media="(max-width: 991.98px)" />
 <style>
     @@keyframes pulse {
         0%, 100% { opacity: 1; }
@@ -13,8 +13,13 @@
     .fa-circle[style*="animation"] {
         display: inline-block;
     }
+    .session-panel__llm { color: rgba(255, 255, 255, 0.85); }
+    .session-panel__llm .form-check-label { cursor: pointer; }
+    .session-panel__llm .form-check-input { margin-top: 0.2rem; }
+    .video-header__session { font-size: 0.7rem; opacity: 0.8; }
 </style>
 
+<div class="d-none d-lg-block">
 <div class="container-fluid h-100 py-4">
     <div class="row h-100 g-4">
         <!-- Main call area -->
@@ -112,24 +117,152 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+</div>
 
-        <!-- Sources Panel (hidden; no longer needed in UI) -->
-        <div class="col-lg-4" style="display:none;">
-            <div class="logs-panel sources-panel h-100 d-flex flex-column">
-                <div class="sources-header">
-                    <h5 class="mb-0">
-                        <i class="fas fa-link me-2"></i>
-                        Reference Sources
-                    </h5>
-                    <p class="text-white-50 small mb-0">Medical documents referenced in the avatar's response.</p>
-                </div>
-                <div class="sources-body" id="sourcesContainer">
-                    <div class="text-center text-muted py-5">
-                        <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
-                        <p>No sources yet</p>
-                        <p class="small">Start a conversation to see cited references.</p>
+<div class="d-lg-none">
+<div class="avatar-experience">
+    <div class="avatar-stage">
+        <video id="avatarVideoM" autoplay playsinline muted hidden></video>
+        <audio id="avatarAudioM" autoplay></audio>
+        <audio id="ttsPlaybackM" playsinline hidden></audio>
+
+        <div id="placeholderM" class="avatar-placeholder">
+            <div class="avatar-placeholder__icon">
+                <i class="fas fa-user-md"></i>
+            </div>
+            <p class="avatar-placeholder__eyebrow">HeyGen AI stream</p>
+            <h2>Dr. Dexter is standing by</h2>
+            <p>Start a session to begin a live ER coaching consult.</p>
+        </div>
+
+        <div id="loadingM" class="avatar-loading" hidden>
+            <div class="spinner-border text-light mb-3" role="status"></div>
+            <p id="loadingTextM">Connecting...</p>
+        </div>
+    </div>
+
+    <div class="video-header">
+        <div class="video-header__content">
+            <div class="video-header__title">
+                <h3>Dr. Dexter</h3>
+                <span class="video-header__status" id="statusBadgeM">Ready</span>
+                <p class="video-header__session mb-0">Session <span id="sessionIdDisplayM">—</span></p>
+            </div>
+            <div class="video-header__timer" id="callTimerM">00:00</div>
+        </div>
+        <div class="pip-view" id="pipViewM" hidden>
+            <div class="pip-view__badge">Patient</div>
+            <div class="pip-view__avatar">
+                <i class="fas fa-user"></i>
+            </div>
+            <div class="pip-view__meta">
+                <span class="pip-view__name">Patient Cam</span>
+                <span class="pip-view__status">Live</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="floating-controls">
+        <button type="button" class="control-btn control-btn--mute" id="recordButtonM" disabled title="Voice input">
+            <i class="fas fa-microphone"></i>
+        </button>
+        <button type="button" class="control-btn control-btn--chat" id="chatToggleBtnM" title="Open chat">
+            <i class="fas fa-comments"></i>
+        </button>
+        <button type="button" class="control-btn control-btn--end" id="endCallBtnM" disabled title="Stop session">
+            <i class="fas fa-phone-slash"></i>
+        </button>
+    </div>
+
+    <div class="session-panel" id="sessionPanelM">
+        <div class="session-panel__actions">
+            <div class="session-panel__llm small text-start">
+                <div class="mb-1">Answer engine</div>
+                <div class="d-flex flex-wrap gap-2 mb-2" role="group" aria-label="Answer engine">
+                    <div class="form-check form-check-inline m-0">
+                        <input class="form-check-input" type="radio" name="avatarLlmM" id="avatarLlmClaudeM" value="claude" checked>
+                        <label class="form-check-label" for="avatarLlmClaudeM" title="Anthropic via RAG service">Claude</label>
+                    </div>
+                    <div class="form-check form-check-inline m-0">
+                        <input class="form-check-input" type="radio" name="avatarLlmM" id="avatarLlmLocalM" value="local">
+                        <label class="form-check-label" for="avatarLlmLocalM" title="Local Ollama (see RAG:Model)">Local</label>
                     </div>
                 </div>
+                <div class="mb-1">References</div>
+                <div class="d-flex flex-wrap gap-2" role="group" aria-label="Reference retrieval">
+                    <div class="form-check form-check-inline m-0">
+                        <input class="form-check-input" type="radio" name="avatarRefM" id="avatarRefOnM" value="on" checked>
+                        <label class="form-check-label" for="avatarRefOnM">On</label>
+                    </div>
+                    <div class="form-check form-check-inline m-0">
+                        <input class="form-check-input" type="radio" name="avatarRefM" id="avatarRefOffM" value="off">
+                        <label class="form-check-label" for="avatarRefOffM" title="General knowledge only; no document retrieval">Off</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button class="session-toggle-button session-toggle-button--start" type="button" id="startButtonM">
+            <i class="fas fa-play me-2"></i>Start Session
+        </button>
+        <button class="session-toggle-button session-toggle-button--stop" type="button" id="stopButtonM" hidden>
+            <i class="fas fa-stop me-2"></i>Stop Session
+        </button>
+
+        <div id="recordingStatusM" class="recording-status" hidden>
+            <small>
+                <i class="fas fa-circle me-1" style="animation: pulse 1s infinite;"></i>
+                Recording… tap again to send
+            </small>
+        </div>
+    </div>
+
+    <div class="chat-drawer" id="chatDrawerM">
+        <div class="chat-drawer__header">
+            <h4>Session Chat</h4>
+            <button type="button" class="chat-drawer__close" id="closeChatBtnM" title="Close chat" aria-label="Close chat">
+                <i class="fas fa-chevron-down"></i>
+            </button>
+        </div>
+
+        <div class="chat-messages chat-transcript consultation-transcript" id="chatHistoryM">
+            <div class="transcript-placeholder text-center">
+                <i class="fas fa-comments"></i>
+                <p class="mb-0">Transcript appears here</p>
+            </div>
+        </div>
+
+        <div class="drawer-footer">
+            <div class="drawer-composer">
+                <input type="text" id="messageInputM" class="form-control consultation-input" placeholder="Ask a question…" maxlength="500" disabled>
+                <button class="session-action session-action--primary" type="button" id="sendButtonM" disabled>
+                    <span class="session-action__icon"><i class="fas fa-paper-plane"></i></span>
+                    <span class="session-action__label">Send</span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+</div>
+
+<div style="display: none;" aria-hidden="true">
+    <div class="logs-panel sources-panel h-100 d-flex flex-column">
+        <div class="sources-header">
+            <h5 class="mb-0">
+                <i class="fas fa-link me-2"></i>
+                Reference Sources
+            </h5>
+            <p class="text-white-50 small mb-0">Medical documents referenced in the avatar's response.</p>
+        </div>
+        <div class="sources-body" id="sourcesContainer">
+            <div class="text-center text-muted py-5">
+                <i class="fas fa-graduation-cap fa-3x mb-3" style="color: #94a3b8;"></i>
+                <p>No sources yet</p>
+                <p class="small">Start a conversation to see cited references.</p>
             </div>
         </div>
     </div>
@@ -147,13 +280,18 @@
     // ============================================
     const API_BASE = '/api/avatar/v2/streaming';
     const KEEPALIVE_INTERVAL_MS = 30000; // HeyGen sessions can close when idle; ping every 30s to reduce "Connection lost"
+    const mql = window.matchMedia('(min-width: 992px)');
+
+    function isDesktop() {
+        return mql.matches;
+    }
 
     function getAvatarUseClaude() {
-        const el = document.getElementById('avatarLlmClaude');
+        const el = document.getElementById(isDesktop() ? 'avatarLlmClaude' : 'avatarLlmClaudeM');
         return !!(el && el.checked);
     }
     function getAvatarUseRag() {
-        const on = document.getElementById('avatarRefOn');
+        const on = document.getElementById(isDesktop() ? 'avatarRefOn' : 'avatarRefOnM');
         return !!(on && on.checked);
     }
     let liveKitRoom = null;
@@ -172,10 +310,13 @@
     let lastTtsObjectUrl = null;
     let isSessionActive = false;
     let keepaliveIntervalId = null;
+    let callStartTime = null;
+    let callTimerInterval = null;
+    let isChatDrawerOpen = false;
     
     // Helper function to check video element state (can be called from console)
     window.checkVideoState = function() {
-        const v = document.getElementById('avatarVideo');
+        const v = document.getElementById(isDesktop() ? 'avatarVideo' : 'avatarVideoM');
         if (!v) {
             console.log('[DEBUG] Video element not found');
             return null;
@@ -213,7 +354,7 @@
     
     // Helper function to force video visibility (for debugging)
     window.forceVideoVisible = function() {
-        const v = document.getElementById('avatarVideo');
+        const v = document.getElementById(isDesktop() ? 'avatarVideo' : 'avatarVideoM');
         if (!v) {
             console.error('[DEBUG] Video element not found');
             return;
@@ -230,7 +371,7 @@
         v.hidden = false;
         
         // Hide placeholder
-        const placeholder = document.getElementById('placeholder');
+        const placeholder = document.getElementById(isDesktop() ? 'placeholder' : 'placeholderM');
         if (placeholder) {
             placeholder.hidden = true;
         }
@@ -258,25 +399,106 @@
     console.log('[RECORD] Using ElevenLabs for speech-to-text (Web Speech API disabled)');
 
     // ============================================
-    // DOM Elements
+    // DOM Elements (desktop vs mobile — separate element ids)
     // ============================================
     const elements = {
-        video: document.getElementById('avatarVideo'),
-        audio: document.getElementById('avatarAudio'),
-        placeholder: document.getElementById('placeholder'),
-        loading: document.getElementById('loading'),
-        loadingText: document.getElementById('loadingText'),
-        chatHistory: document.getElementById('chatHistory'),
-        messageInput: document.getElementById('messageInput'),
-        sendButton: document.getElementById('sendButton'),
-        recordButton: document.getElementById('recordButton'),
-        startButton: document.getElementById('startButton'),
-        stopButton: document.getElementById('stopButton'),
-        statusBadge: document.getElementById('statusBadge'),
-        sessionIdDisplay: document.getElementById('sessionIdDisplay'),
-        sourcesContainer: document.getElementById('sourcesContainer'),
-        recordingStatus: document.getElementById('recordingStatus')
+        ttsPlayback: null
     };
+
+    function refreshElements() {
+        const d = isDesktop();
+        if (d) {
+            elements.video = document.getElementById('avatarVideo');
+            elements.audio = document.getElementById('avatarAudio');
+            elements.ttsPlayback = document.getElementById('ttsPlayback');
+            elements.placeholder = document.getElementById('placeholder');
+            elements.loading = document.getElementById('loading');
+            elements.loadingText = document.getElementById('loadingText');
+            elements.chatHistory = document.getElementById('chatHistory');
+            elements.messageInput = document.getElementById('messageInput');
+            elements.sendButton = document.getElementById('sendButton');
+            elements.recordButton = document.getElementById('recordButton');
+            elements.startButton = document.getElementById('startButton');
+            elements.stopButton = document.getElementById('stopButton');
+            elements.statusBadge = document.getElementById('statusBadge');
+            elements.sessionIdDisplay = document.getElementById('sessionIdDisplay');
+            elements.callTimer = null;
+            elements.recordingStatus = document.getElementById('recordingStatus');
+            elements.chatToggleBtn = null;
+            elements.closeChatBtn = null;
+            elements.chatDrawer = null;
+            elements.endCallBtn = null;
+        } else {
+            elements.video = document.getElementById('avatarVideoM');
+            elements.audio = document.getElementById('avatarAudioM');
+            elements.ttsPlayback = document.getElementById('ttsPlaybackM');
+            elements.placeholder = document.getElementById('placeholderM');
+            elements.loading = document.getElementById('loadingM');
+            elements.loadingText = document.getElementById('loadingTextM');
+            elements.chatHistory = document.getElementById('chatHistoryM');
+            elements.messageInput = document.getElementById('messageInputM');
+            elements.sendButton = document.getElementById('sendButtonM');
+            elements.recordButton = document.getElementById('recordButtonM');
+            elements.startButton = document.getElementById('startButtonM');
+            elements.stopButton = document.getElementById('stopButtonM');
+            elements.statusBadge = document.getElementById('statusBadgeM');
+            elements.sessionIdDisplay = document.getElementById('sessionIdDisplayM');
+            elements.callTimer = document.getElementById('callTimerM');
+            elements.recordingStatus = document.getElementById('recordingStatusM');
+            elements.chatToggleBtn = document.getElementById('chatToggleBtnM');
+            elements.closeChatBtn = document.getElementById('closeChatBtnM');
+            elements.chatDrawer = document.getElementById('chatDrawerM');
+            elements.endCallBtn = document.getElementById('endCallBtnM');
+        }
+        elements.sourcesContainer = document.getElementById('sourcesContainer');
+    }
+
+    refreshElements();
+    mql.addEventListener('change', function() { refreshElements(); });
+
+    function startCallTimer() {
+        stopCallTimer();
+        callStartTime = new Date();
+        if (!elements.callTimer) return;
+        callTimerInterval = setInterval(function() {
+            if (!callStartTime || !elements.callTimer) return;
+            const elapsed = Math.floor((new Date() - callStartTime) / 1000);
+            const m = Math.floor(elapsed / 60).toString().padStart(2, '0');
+            const s = (elapsed % 60).toString().padStart(2, '0');
+            elements.callTimer.textContent = m + ':' + s;
+        }, 1000);
+    }
+
+    function stopCallTimer() {
+        if (callTimerInterval) {
+            clearInterval(callTimerInterval);
+            callTimerInterval = null;
+        }
+        callStartTime = null;
+        if (elements.callTimer) {
+            elements.callTimer.textContent = '00:00';
+        }
+    }
+
+    function toggleChatDrawer() {
+        isChatDrawerOpen = !isChatDrawerOpen;
+        if (elements.chatDrawer) {
+            elements.chatDrawer.classList.toggle('chat-drawer--open', isChatDrawerOpen);
+        }
+        if (elements.chatToggleBtn) {
+            elements.chatToggleBtn.classList.toggle('control-btn--active', isChatDrawerOpen);
+        }
+    }
+
+    function closeChatDrawer() {
+        isChatDrawerOpen = false;
+        if (elements.chatDrawer) {
+            elements.chatDrawer.classList.remove('chat-drawer--open');
+        }
+        if (elements.chatToggleBtn) {
+            elements.chatToggleBtn.classList.remove('control-btn--active');
+        }
+    }
 
     // ============================================
     // Utility Functions
@@ -437,7 +659,8 @@
                 lastTtsObjectUrl = null;
             }
             lastTtsObjectUrl = URL.createObjectURL(blob);
-            const el = document.getElementById('ttsPlayback');
+            refreshElements();
+            const el = elements.ttsPlayback;
             if (!el) return;
             el.onended = function() {
                 if (lastTtsObjectUrl) {
@@ -663,13 +886,17 @@
     }
 
     function updateStatus(text, type = 'secondary') {
-        const icons = {
-            secondary: 'fa-circle',
-            success: 'fa-circle',
-            warning: 'fa-circle',
-            danger: 'fa-circle'
-        };
-        elements.statusBadge.innerHTML = `<i class="fas ${icons[type]} text-${type}"></i> ${text}`;
+        if (!elements.statusBadge) return;
+        if (isDesktop()) {
+            const icons = { secondary: 'fa-circle', success: 'fa-circle', warning: 'fa-circle', danger: 'fa-circle' };
+            const t = (type && ['secondary', 'success', 'warning', 'danger'].indexOf(type) >= 0) ? type : 'secondary';
+            const ic = icons[t] || icons.secondary;
+            elements.statusBadge.innerHTML = `<i class="fas ${ic} text-${t}"></i> ${text}`;
+        } else {
+            const t2 = (type && ['secondary', 'success', 'warning', 'danger'].indexOf(type) >= 0) ? type : 'secondary';
+            elements.statusBadge.className = 'video-header__status video-header__status--' + t2;
+            elements.statusBadge.textContent = text;
+        }
     }
 
     function showLoading(text = 'Loading...') {
@@ -683,29 +910,42 @@
     }
 
     function addMessage(sender, message, isError = false) {
-        // Remove placeholder
-        const placeholder = elements.chatHistory.querySelector('.text-center');
-        if (placeholder) placeholder.remove();
+        refreshElements();
+        const ph = elements.chatHistory.querySelector('.transcript-placeholder');
+        const ph2 = elements.chatHistory.querySelector('.text-center');
+        if (ph) ph.remove();
+        if (ph2) ph2.remove();
 
         const messageDiv = document.createElement('div');
-        messageDiv.className = `mb-2 p-2 rounded ${isError ? 'bg-danger text-white' : sender === 'User' ? 'bg-primary text-white ms-auto' : 'bg-light'}`;
-        messageDiv.style.maxWidth = '85%';
-        messageDiv.style.marginLeft = sender === 'User' ? 'auto' : '0';
-
-        const icon = sender === 'User' ? 'fa-user' : isError ? 'fa-exclamation-circle' : 'fa-user-md';
         const escapedMessage = escapeHtml(message).replace(/\n/g, '<br>');
-        
-        messageDiv.innerHTML = `
-            <div class="d-flex align-items-start">
-                <span><i class="fas ${icon} me-2"></i></span>
-                <div class="flex-grow-1">
-                    <strong>${escapeHtml(sender)}:</strong>
-                    <div>${escapedMessage}</div>
-                    <small class="text-muted">${new Date().toLocaleTimeString()}</small>
+        if (isDesktop()) {
+            messageDiv.className = `mb-2 p-2 rounded ${isError ? 'bg-danger text-white' : sender === 'User' ? 'bg-primary text-white ms-auto' : 'bg-light'}`;
+            messageDiv.style.maxWidth = '85%';
+            messageDiv.style.marginLeft = sender === 'User' ? 'auto' : '0';
+            const icon = sender === 'User' ? 'fa-user' : isError ? 'fa-exclamation-circle' : 'fa-user-md';
+            messageDiv.innerHTML = `
+                <div class="d-flex align-items-start">
+                    <span><i class="fas ${icon} me-2"></i></span>
+                    <div class="flex-grow-1">
+                        <strong>${escapeHtml(sender)}:</strong>
+                        <div>${escapedMessage}</div>
+                        <small class="text-muted">${new Date().toLocaleTimeString()}</small>
+                    </div>
                 </div>
-            </div>
-        `;
-
+            `;
+        } else {
+            const bubbleType = isError
+                ? 'chat-bubble-entry--error'
+                : (sender === 'User'
+                    ? 'chat-bubble-entry--user'
+                    : (sender === 'System' ? 'chat-bubble-entry--system' : 'chat-bubble-entry--assistant'));
+            messageDiv.className = 'chat-bubble-entry ' + bubbleType;
+            messageDiv.innerHTML = `
+                <span class="chat-bubble-entry__sender">${escapeHtml(sender)}</span>
+                <div class="chat-bubble-entry__body">${escapedMessage}</div>
+                <small class="chat-bubble-entry__time">${new Date().toLocaleTimeString()}</small>
+            `;
+        }
         elements.chatHistory.appendChild(messageDiv);
         elements.chatHistory.scrollTop = elements.chatHistory.scrollHeight;
     }
@@ -764,7 +1004,8 @@
     // ============================================
     function unlockAudioForMobile() {
         try {
-            var el = document.getElementById('avatarAudio');
+            refreshElements();
+            var el = elements.audio;
             if (!el) return;
             var silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
             el.src = silentWav;
@@ -777,6 +1018,7 @@
     // LiveKit Connection
     // ============================================
     async function connectToLiveKit(url, accessToken) {
+        refreshElements();
         return new Promise((resolve, reject) => {
             // Wait for LiveKit client to load
             let attempts = 0;
@@ -888,6 +1130,7 @@
 
                         room.on(LiveKit.RoomEvent.Disconnected, () => {
                             console.log('Room disconnected');
+                            refreshElements();
                             try { if (window.speechSynthesis) window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
                             stopKeepalive();
                             updateStatus('Disconnected', 'danger');
@@ -905,10 +1148,10 @@
                                 URL.revokeObjectURL(lastTtsObjectUrl);
                                 lastTtsObjectUrl = null;
                             }
-                            var ttsElDc = document.getElementById('ttsPlayback');
-                            if (ttsElDc) {
-                                ttsElDc.pause();
-                                ttsElDc.removeAttribute('src');
+                            refreshElements();
+                            if (elements.ttsPlayback) {
+                                elements.ttsPlayback.pause();
+                                elements.ttsPlayback.removeAttribute('src');
                             }
                             elements.messageInput.disabled = true;
                             elements.sendButton.disabled = true;
@@ -1107,6 +1350,7 @@
     // ============================================
     async function startSession() {
         console.log('[SESSION] startSession() called');
+        refreshElements();
         unlockAudioForMobile();
         try {
             elements.startButton.disabled = true;
@@ -1182,6 +1426,10 @@
             elements.stopButton.hidden = false;
             updateStatus('Connected', 'success');
             startKeepalive();
+            startCallTimer();
+            if (elements.endCallBtn) {
+                elements.endCallBtn.disabled = false;
+            }
 
         } catch (error) {
             console.error('Error starting session:', error);
@@ -1218,6 +1466,7 @@
 
     async function stopSessionHandler() {
         try {
+            refreshElements();
             elements.stopButton.disabled = true;
             updateStatus('Stopping...', 'warning');
             stopKeepalive();
@@ -1251,6 +1500,10 @@
             elements.startButton.disabled = false;
             elements.sessionIdDisplay.textContent = '-';
             updateStatus('Ready', 'secondary');
+            stopCallTimer();
+            if (elements.endCallBtn) {
+                elements.endCallBtn.disabled = true;
+            }
             sessionData = null;
             streamingToken = null;
             deliversSpeechViaServer = true;
@@ -1259,10 +1512,10 @@
                 URL.revokeObjectURL(lastTtsObjectUrl);
                 lastTtsObjectUrl = null;
             }
-            var ttsEl = document.getElementById('ttsPlayback');
-            if (ttsEl) {
-                ttsEl.pause();
-                ttsEl.removeAttribute('src');
+            refreshElements();
+            if (elements.ttsPlayback) {
+                elements.ttsPlayback.pause();
+                elements.ttsPlayback.removeAttribute('src');
             }
             addMessage('System', 'Session stopped.', false);
             
@@ -1284,6 +1537,7 @@
 
     async function sendMessage() {
         console.log('[MESSAGE] sendMessage() called');
+        refreshElements();
         const message = elements.messageInput.value.trim();
         if (!message || !isSessionActive) {
             console.warn('[MESSAGE] Cannot send - message empty or session not active', { message: !!message, isSessionActive });
@@ -1370,6 +1624,7 @@
 
     async function startRecording() {
         try {
+            refreshElements();
             console.log('[RECORD] ===== USING ELEVENLABS FOR SPEECH-TO-TEXT =====');
             // Microphone API is only available in secure contexts (HTTPS or localhost)
             if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
@@ -1464,10 +1719,15 @@
             isRecording = true;
             console.log('[RECORD] Recording started');
             
-            // Update UI
-            elements.recordButton.innerHTML = '<i class="fas fa-stop me-2"></i>Stop';
-            elements.recordButton.classList.remove('btn-info');
-            elements.recordButton.classList.add('btn-danger');
+            // Update UI: desktop = Bootstrap buttons; mobile = floating control
+            if (isDesktop()) {
+                elements.recordButton.innerHTML = '<i class="fas fa-stop me-2"></i>Stop';
+                elements.recordButton.classList.remove('btn-info');
+                elements.recordButton.classList.add('btn-danger');
+            } else {
+                elements.recordButton.innerHTML = '<i class="fas fa-stop"></i>';
+                elements.recordButton.classList.add('control-btn--active', 'control-btn--muted');
+            }
             elements.recordingStatus.hidden = false;
             updateStatus('Recording...', 'warning');
 
@@ -1500,11 +1760,16 @@
         if (mediaRecorder && isRecording) {
             mediaRecorder.stop();
             isRecording = false;
-            
+            refreshElements();
             // Update UI
-            elements.recordButton.innerHTML = '<i class="fas fa-microphone me-2"></i>Voice';
-            elements.recordButton.classList.remove('btn-danger');
-            elements.recordButton.classList.add('btn-info');
+            if (isDesktop()) {
+                elements.recordButton.innerHTML = '<i class="fas fa-microphone me-2"></i>Voice';
+                elements.recordButton.classList.remove('btn-danger');
+                elements.recordButton.classList.add('btn-info');
+            } else {
+                elements.recordButton.innerHTML = '<i class="fas fa-microphone"></i>';
+                elements.recordButton.classList.remove('control-btn--active', 'control-btn--muted');
+            }
             elements.recordingStatus.hidden = true;
             elements.recordButton.disabled = true;
             updateStatus('Processing audio...', 'warning');
@@ -1513,6 +1778,7 @@
 
     async function sendAudio(audioBlob) {
         console.log('[AUDIO] ===== SENDING AUDIO TO WHISPER FOR TRANSCRIPTION =====');
+        refreshElements();
         if (!isSessionActive || !sessionData) {
             addMessage('System', 'Session not active. Please start a session first.', true);
             elements.recordButton.disabled = false;
@@ -1666,8 +1932,8 @@
     }
 
     function toggleRecording() {
-        // Use MediaRecorder + ElevenLabs speech-to-text pipeline (preferred method)
         console.log('[RECORD] Toggling voice recording (ElevenLabs)...');
+        refreshElements();
         if (!isRecording) {
             startRecording();
         } else {
@@ -1676,16 +1942,32 @@
     }
 
     // ============================================
-    // Event Listeners
+    // Event Listeners (bind both desktop + mobile controls)
     // ============================================
-    elements.startButton.addEventListener('click', startSession);
-    elements.stopButton.addEventListener('click', stopSessionHandler);
-    elements.sendButton.addEventListener('click', sendMessage);
-    elements.recordButton.addEventListener('click', toggleRecording);
-    elements.messageInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey && isSessionActive) {
-            e.preventDefault();
-            sendMessage();
+    function bindById(id, eventName, fn) {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener(eventName, fn);
+    }
+    bindById('startButton', 'click', startSession);
+    bindById('startButtonM', 'click', startSession);
+    bindById('stopButton', 'click', stopSessionHandler);
+    bindById('stopButtonM', 'click', stopSessionHandler);
+    bindById('endCallBtnM', 'click', stopSessionHandler);
+    bindById('chatToggleBtnM', 'click', toggleChatDrawer);
+    bindById('closeChatBtnM', 'click', closeChatDrawer);
+    bindById('sendButton', 'click', sendMessage);
+    bindById('sendButtonM', 'click', sendMessage);
+    bindById('recordButton', 'click', toggleRecording);
+    bindById('recordButtonM', 'click', toggleRecording);
+    [ 'messageInput', 'messageInputM' ].forEach(function(mId) {
+        const inp = document.getElementById(mId);
+        if (inp) {
+            inp.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey && isSessionActive) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
         }
     });
 
