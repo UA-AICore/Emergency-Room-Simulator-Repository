@@ -22,8 +22,8 @@ namespace ERSimulatorApp.Services
         {
             _httpClient = httpClient;
             _logger = logger;
-            _ollamaEndpoint = configuration["Ollama:Endpoint"] ?? "http://127.0.0.1:11434/api/generate";
-            _model = configuration["Ollama:Model"] ?? "alibayram/medgemma:27b";
+            _ollamaEndpoint = configuration["Ollama:Endpoint"] ?? "http://127.0.0.1:11435/api/generate";
+            _model = configuration["Ollama:Model"] ?? "medgemma-ft";
         }
 
         public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null, bool useRag = true)

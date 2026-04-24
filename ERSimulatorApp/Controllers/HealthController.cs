@@ -48,9 +48,17 @@ namespace ERSimulatorApp.Controllers
         {
             try
             {
+                var endpoint = _configuration["Ollama:Endpoint"] ?? "http://127.0.0.1:11435/api/chat";
+                if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var ollamaUri))
+                {
+                    return new { status = "down", error = "Ollama:Endpoint is not a valid URL" };
+                }
+                var root = ollamaUri.GetLeftPart(UriPartial.Authority);
+                var tagsUrl = $"{root.TrimEnd('/')}/api/tags";
+
                 using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-                var response = await httpClient.GetAsync("http://127.0.0.1:11434/api/tags");
-                return new { status = response.IsSuccessStatusCode ? "up" : "down", statusCode = (int)response.StatusCode };
+                var response = await httpClient.GetAsync(tagsUrl);
+                return new { status = response.IsSuccessStatusCode ? "up" : "down", statusCode = (int)response.StatusCode, tagsUrl };
             }
             catch
             {

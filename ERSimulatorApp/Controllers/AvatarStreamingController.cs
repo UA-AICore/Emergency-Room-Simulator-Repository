@@ -135,7 +135,7 @@ namespace ERSimulatorApp.Controllers
                     {
                         mode = "useLocalOllama",
                         reachable = false,
-                        error = "Ollama:Endpoint is missing or not a valid absolute URL (e.g. http://127.0.0.1:11434/api/chat).",
+                        error = "Ollama:Endpoint is missing or not a valid absolute URL (e.g. http://127.0.0.1:11435/api/chat).",
                         ollamaModel = string.IsNullOrEmpty(model) ? (string?)null : model
                     };
                 }
