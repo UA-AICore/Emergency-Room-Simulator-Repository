@@ -665,8 +665,13 @@ def _general_only_answer(
                 {"role": "user", "content": user_content},
             ]
             answer = call_local_ollama(messages)
-    except Exception as e:
-        logging.warning("General (no RAG) LLM call failed: %s", e)
+    except Exception:
+        # Same local LLM (OLLAMA_URL / medgemma-ft) as RAG mode; no Chroma in this path.
+        logging.exception(
+            "General (no RAG) LLM call failed; check OLLAMA_URL is reachable from RAG. OLLAMA_URL=%r OLLAMA_MODEL=%r",
+            OLLAMA_URL,
+            OLLAMA_MODEL,
+        )
         return (
             "I couldn't get an answer from the model just now. Please try again in a moment.",
             [],
