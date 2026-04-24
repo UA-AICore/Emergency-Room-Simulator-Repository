@@ -143,12 +143,17 @@ esac
 # ----- interactive foreground run -----
 PROFILE="${1:-ServerHttps}"
 RAG_PID=""
+FT_PID=""
 cleanup() {
   echo ""
   echo "Shutting down..."
   if [ -n "$RAG_PID" ] && kill -0 "$RAG_PID" 2>/dev/null; then
     kill "$RAG_PID" 2>/dev/null || true
     echo "RAG (uvicorn) stopped."
+  fi
+  if [ -n "$FT_PID" ] && kill -0 "$FT_PID" 2>/dev/null; then
+    kill "$FT_PID" 2>/dev/null || true
+    echo "MedGemma-ft (uvicorn) stopped."
   fi
   exit 0
 }
@@ -166,6 +171,25 @@ if command -v ss >/dev/null 2>&1; then
 else
   PORT_IN_USE=$( (echo >/dev/tcp/127.0.0.1/8010) 2>/dev/null && echo 1 || echo 0)
 fi
+
+# Check if port 11435 is already in use (e.g. from a previous run)
+if command -v ss >/dev/null 2>&1; then
+  FT_PORT_IN_USE=$(ss -tlnp 2>/dev/null | grep -c ':11435 ' || true)
+else
+  FT_PORT_IN_USE=$( (echo >/dev/tcp/127.0.0.1/11435) 2>/dev/null && echo 1 || echo 0)
+fi
+if [ "${FT_PORT_IN_USE:-0}" -gt 0 ]; then
+  echo "Port 11435 already in use; assuming fine-tuned MedGemma serve is already running. Skipping."
+  FT_PID=""
+else
+  echo "Starting fine-tuned MedGemma serve on port 11435 (logs/finetune-serve.log)..."
+  source rag_backend/.venv/bin/activate 2>/dev/null || source rag_backend/venv/bin/activate
+  (python3 -m uvicorn rag_backend.finetuning.serve:app --host 127.0.0.1 --port 11435 \
+     > logs/finetune-serve.log 2>&1) &
+  FT_PID=$!
+  echo "MedGemma-ft PID: $FT_PID (model load takes ~45s on first start)"
+fi
+
 if [ "${PORT_IN_USE:-0}" -gt 0 ]; then
   echo "Port 8010 already in use; assuming RAG is already running. Skipping RAG startup."
   RAG_PID=""
@@ -185,6 +209,7 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
   fi
   sleep 1
 done
+
 # Preserve SKIP_PDF_INGEST if sync_kb_env_from_appsettings already exported it
 SKIP_PDF_INGEST="${SKIP_PDF_INGEST:-0}"
 if [ "${RAG_CONTEXT_SOURCE:-}" = "knowledge_api" ]; then
