@@ -57,6 +57,9 @@ namespace ERSimulatorApp.Models
         public string? StreamingToken { get; set; }
         /// <summary>When true, use Claude (RAG) instead of local Ollama/gemma for the avatar's answer.</summary>
         public bool UseClaude { get; set; }
+
+        /// <summary>When true, the RAG server retrieves from Chroma + knowledge API. When false, the model answers from general knowledge only (no document retrieval).</summary>
+        public bool UseRag { get; set; } = true;
     }
 
     public class AvatarResponse
@@ -159,6 +162,11 @@ namespace ERSimulatorApp.Models
     {
         public string ConversationId { get; set; } = string.Empty;
         public string? StreamingToken { get; set; }
+    }
+
+    public class TtsSynthesizeRequest
+    {
+        public string? Text { get; set; }
     }
 }
 

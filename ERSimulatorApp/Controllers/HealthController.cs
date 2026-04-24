@@ -63,15 +63,18 @@ namespace ERSimulatorApp.Controllers
             try
             {
                 using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-                var ragBaseUrl = _configuration["RAG:BaseUrl"] ?? "https://unchid-promonopoly-tiera.ngrok-free.dev";
+                var ragBaseUrl = _configuration["RAG:BaseUrl"] ?? "http://127.0.0.1:8010/v1/chat/completions";
                 
-                // Add ngrok header to bypass browser warning page
+                // Add ngrok header to bypass browser warning page when using ngrok
                 if (ragBaseUrl.Contains("ngrok-free.dev"))
                 {
                     httpClient.DefaultRequestHeaders.Add("ngrok-skip-browser-warning", "true");
                 }
                 
-                var response = await httpClient.GetAsync($"{ragBaseUrl}/health");
+                // RAG health is at root /health; BaseUrl may be .../v1/chat/completions
+                var ragUri = new Uri(ragBaseUrl);
+                var healthUrl = $"{ragUri.Scheme}://{ragUri.Host}:{ragUri.Port}/health";
+                var response = await httpClient.GetAsync(healthUrl);
                 if (response.IsSuccessStatusCode)
                 {
                     var content = await response.Content.ReadAsStringAsync();

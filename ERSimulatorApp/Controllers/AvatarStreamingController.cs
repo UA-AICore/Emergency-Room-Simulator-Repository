@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 
 namespace ERSimulatorApp.Controllers
 {
@@ -15,11 +16,16 @@ namespace ERSimulatorApp.Controllers
     [Route("api/avatar/v2/streaming")]
     public class AvatarStreamingController : ControllerBase
     {
+        // Must match RAGService default when RAG:BaseUrl is unset, so this probe tests the same host as the LLM uses.
+        private const string DefaultRagChatCompletionsBaseUrl = "https://aicore-llmserver-healthcare.tra220030.projects.jetstream-cloud.org/v1/chat/completions";
+
         private readonly IHeyGenStreamingService _heyGenService;
         private readonly ILLMService _llmService;
         private readonly IElevenLabsSpeechToTextService _speechToTextService;
+        private readonly IElevenLabsTextToSpeechService _ttsService;
         private readonly ILogger<AvatarStreamingController> _logger;
         private readonly IConfiguration _configuration;
+        private readonly IHttpClientFactory _httpClientFactory;
         private readonly string _sourceDocumentsPath;
         private readonly int _maxSpeechChars;
 
@@ -27,15 +33,19 @@ namespace ERSimulatorApp.Controllers
             IHeyGenStreamingService heyGenService,
             ILLMService llmService,
             IElevenLabsSpeechToTextService speechToTextService,
+            IElevenLabsTextToSpeechService ttsService,
             ILogger<AvatarStreamingController> logger,
             IConfiguration configuration,
+            IHttpClientFactory httpClientFactory,
             IWebHostEnvironment environment)
         {
             _heyGenService = heyGenService;
             _llmService = llmService;
             _speechToTextService = speechToTextService;
+            _ttsService = ttsService;
             _logger = logger;
             _configuration = configuration;
+            _httpClientFactory = httpClientFactory;
 
             var configuredPath = configuration["RAG:SourceDocumentsPath"];
             if (string.IsNullOrWhiteSpace(configuredPath))
@@ -101,6 +111,107 @@ namespace ERSimulatorApp.Controllers
             return truncated.TrimEnd() + "…";
         }
 
+        /// <summary>Lightweight GET for browser health checks. POST-only routes like <c>session/create</c> return 405 for GET; use this instead.</summary>
+        [HttpGet("health")]
+        public IActionResult GetHealth() =>
+            Ok(new { ok = true, service = "avatar/v2/streaming" });
+
+        /// <summary>
+        /// RAG + optional Ollama reachability (short HTTP probes). Use when Dr. Dexter says the reference database is unavailable: fix what reports <c>reachable: false</c>.
+        /// </summary>
+        [HttpGet("health/dependencies")]
+        public async Task<IActionResult> GetHealthDependencies(CancellationToken cancellationToken)
+        {
+            var useLocalOllama = _configuration.GetValue<bool>("RAG:UseLocalOllama");
+            object knowledge;
+
+            if (useLocalOllama)
+            {
+                var endpoint = _configuration["Ollama:Endpoint"]?.Trim();
+                var model = _configuration["Ollama:Model"]?.Trim() ?? "";
+                if (string.IsNullOrEmpty(endpoint) || !Uri.TryCreate(endpoint, UriKind.Absolute, out var ollamaUri))
+                {
+                    knowledge = new
+                    {
+                        mode = "useLocalOllama",
+                        reachable = false,
+                        error = "Ollama:Endpoint is missing or not a valid absolute URL (e.g. http://127.0.0.1:11434/api/chat).",
+                        ollamaModel = string.IsNullOrEmpty(model) ? (string?)null : model
+                    };
+                }
+                else
+                {
+                    var ollamaBase = $"{ollamaUri.Scheme}://{ollamaUri.Authority}";
+                    var tagsUrl = ollamaBase + "/api/tags";
+                    var (ok, err) = await HttpProbeGetAsync(tagsUrl, cancellationToken).ConfigureAwait(false);
+                    knowledge = new
+                    {
+                        mode = "useLocalOllama",
+                        reachable = ok,
+                        probedGet = tagsUrl,
+                        error = ok ? (string?)null : err,
+                        ollamaModel = string.IsNullOrEmpty(model) ? (string?)null : model
+                    };
+                }
+            }
+            else
+            {
+                var ragBase = _configuration["RAG:BaseUrl"]?.Trim();
+                if (string.IsNullOrEmpty(ragBase))
+                    ragBase = DefaultRagChatCompletionsBaseUrl;
+                if (!Uri.TryCreate(ragBase, UriKind.Absolute, out var u) || (u.Scheme != "http" && u.Scheme != "https"))
+                {
+                    knowledge = new
+                    {
+                        mode = "ragHttp",
+                        reachable = false,
+                        error = "RAG:BaseUrl (after default fallback) is not a valid absolute http(s) URL."
+                    };
+                }
+                else
+                {
+                    // Python RAG (FastAPI) serves GET /health on same host:port as /v1/... (not guaranteed for all remote hosts).
+                    var healthUrl = new UriBuilder(u.Scheme, u.Host, u.Port, "/health").Uri.ToString();
+                    var (ok, err) = await HttpProbeGetAsync(healthUrl, cancellationToken).ConfigureAwait(false);
+                    knowledge = new
+                    {
+                        mode = "ragHttp",
+                        reachable = ok,
+                        baseUrlHost = u.Host,
+                        baseUrlPathPrefix = u.AbsolutePath.Length > 0 ? (u.AbsolutePath.Length > 48 ? u.AbsolutePath.Substring(0, 45) + "…" : u.AbsolutePath) : "/",
+                        probedGet = healthUrl,
+                        error = ok ? (string?)null : err
+                    };
+                }
+            }
+
+            return Ok(new
+            {
+                ok = true,
+                service = "avatar/v2/streaming/dependencies",
+                app = new { kestrel = "up" },
+                knowledge
+            });
+        }
+
+        private async Task<(bool ok, string? error)> HttpProbeGetAsync(string url, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var client = _httpClientFactory.CreateClient("RagDependencyProbe");
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                    .ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                    return (true, null);
+                return (false, $"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
         /// <summary>
         /// Create a new streaming session
         /// Returns LiveKit connection details
@@ -115,6 +226,23 @@ namespace ERSimulatorApp.Controllers
 
                 var sessionData = await _heyGenService.CreateStreamingSessionAsync();
 
+                var useServerTtsForLiveAvatar = _configuration.GetValue<bool>("ElevenLabs:UseServerTtsForLiveAvatar");
+                var useLiveAvatarAgentSpeak = string.Equals(sessionData.Provider, "liveavatar", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(sessionData.WsUrl)
+                    && _configuration.GetValue<bool>("LiveAvatar:UseAgentSpeakWebSocket");
+
+                var auxiliaryVoiceMode = "none";
+                if (string.Equals(sessionData.Provider, "liveavatar", StringComparison.OrdinalIgnoreCase))
+                {
+                    var aux = (_configuration["LiveAvatar:AuxiliaryVoiceMode"] ?? "None").Trim();
+                    if (aux.Equals("BrowserTts", StringComparison.OrdinalIgnoreCase))
+                        auxiliaryVoiceMode = "browsertts";
+                    else if (aux.Equals("ServerTts", StringComparison.OrdinalIgnoreCase))
+                        auxiliaryVoiceMode = "servertts";
+                }
+
+                var agentSpeakPcmHz = GetAgentSpeakPcmSampleRateHz();
+
                 return Ok(new
                 {
                     success = true,
@@ -124,7 +252,11 @@ namespace ERSimulatorApp.Controllers
                     streamingToken = sessionData.StreamingToken,
                     wsUrl = sessionData.WsUrl,
                     avatarProvider = sessionData.Provider,
-                    deliversSpeechViaServer = _heyGenService.DeliversSpeechViaServer
+                    deliversSpeechViaServer = _heyGenService.DeliversSpeechViaServer,
+                    useServerTtsForLiveAvatar,
+                    useLiveAvatarAgentSpeak,
+                    auxiliaryVoiceMode,
+                    agentSpeakPcmSampleRateHz = agentSpeakPcmHz
                 });
             }
             catch (Exception ex)
@@ -139,13 +271,54 @@ namespace ERSimulatorApp.Controllers
             }
         }
 
+        /// <summary>
+        /// Synthesize speech as WAV (default, 24 kHz) or raw PCM s16le mono for LiveAvatar <c>agent.speak</c> (<c>?format=pcm</c>).
+        /// PCM output rate is <c>LiveAvatar:AgentSpeakPcmSampleRateHz</c> (default 24000, same as TTS). Use 48000 only if LiveAvatar plays too fast/chipmunk; if voice sounds too deep/slow at 48000, keep 24000.
+        /// </summary>
+        [HttpPost("tts")]
+        public async Task<IActionResult> SynthesizeTts([FromQuery] string? format, [FromBody] TtsSynthesizeRequest? body, CancellationToken cancellationToken)
+        {
+            var text = (body?.Text ?? "").Trim();
+            if (string.IsNullOrEmpty(text))
+                return BadRequest(new { error = "Text is required" });
+            if (text.Length > _maxSpeechChars)
+                return BadRequest(new { error = $"Text exceeds maximum length ({_maxSpeechChars} characters)" });
+
+            const int ttsInternalHz = 24000;
+            var result = await _ttsService.SynthesizePcm24kAsync(text, cancellationToken);
+            if (!string.IsNullOrEmpty(result.ErrorMessage))
+                return StatusCode(502, new { error = result.ErrorMessage });
+            if (result.Pcm.Length == 0)
+                return StatusCode(502, new { error = "TTS returned no audio" });
+
+            if (string.Equals(format, "pcm", StringComparison.OrdinalIgnoreCase))
+            {
+                var outHz = GetAgentSpeakPcmSampleRateHz();
+                var pcm = outHz == ttsInternalHz
+                    ? result.Pcm
+                    : PcmS16LeMonoResampler.Resample(result.Pcm, ttsInternalHz, outHz);
+                Response.Headers.Append("X-Pcm-Sample-Rate-Hz", outHz.ToString());
+                return File(pcm, "application/octet-stream");
+            }
+
+            var wav = Pcm16MonoWavBuilder.Build(result.Pcm, ttsInternalHz);
+            return File(wav, "audio/wav", "speech.wav");
+        }
+
+        /// <summary>Sample rate for <c>/tts?format=pcm</c> (LiveAvatar agent.speak). Default 24000 matches Edge/ElevenLabs TTS; raise to 48000 only if you hear fast/chipmunk speech.</summary>
+        private int GetAgentSpeakPcmSampleRateHz() =>
+            Math.Clamp(_configuration.GetValue("LiveAvatar:AgentSpeakPcmSampleRateHz", 24000), 8000, 96000);
 
         /// <summary>
         /// Process audio input: ElevenLabs STT → RAG → HeyGen
         /// Complete voice conversation flow
         /// </summary>
         [HttpPost("audio")]
-        public async Task<IActionResult> ProcessAudio([FromForm] string conversationId, [FromForm] string? streamingToken, [FromForm] bool useClaude = false)
+        public async Task<IActionResult> ProcessAudio(
+            [FromForm] string conversationId,
+            [FromForm] string? streamingToken,
+            [FromForm] bool useClaude = false,
+            [FromForm] bool useRag = true)
         {
             try
             {
@@ -295,13 +468,13 @@ namespace ERSimulatorApp.Controllers
                     });
                 }
 
-                // Step 2: Get RAG response from medical knowledge base (Ollama or Claude per user toggle)
+                // Step 2: Get RAG response from medical knowledge base (Ollama or Claude per user; useRag = Chroma + knowledge API)
                 string? modelOverride = useClaude ? (_configuration["RAG:ClaudeModel"]?.Trim() ?? "claude-opus-4-6") : null;
-                _logger.LogInformation("Step 2: Querying RAG database for medical information (UseClaude: {UseClaude})...", useClaude);
+                _logger.LogInformation("Step 2: LLM (UseClaude: {UseClaude}, UseRag: {UseRag})...", useClaude, useRag);
                 LLMResponse ragResponse;
                 try
                 {
-                    ragResponse = await _llmService.GetResponseAsync(transcript, modelOverride);
+                    ragResponse = await _llmService.GetResponseAsync(transcript, modelOverride, useRag);
                     _logger.LogInformation("RAG database returned response with {SourceCount} medical source references", 
                         ragResponse.Sources?.Count ?? 0);
                 }
@@ -517,8 +690,8 @@ namespace ERSimulatorApp.Controllers
                 {
                     var promptWithContext = BuildPromptWithAvatarContext(request.Message, historySnapshot);
                     string? modelOverride = request.UseClaude ? (_configuration["RAG:ClaudeModel"]?.Trim() ?? "claude-opus-4-6") : null;
-                    _logger.LogInformation("Querying RAG database for medical information (with conversation context, UseClaude: {UseClaude})...", request.UseClaude);
-                    ragResponse = await _llmService.GetResponseAsync(promptWithContext, modelOverride);
+                    _logger.LogInformation("Querying LLM (UseClaude: {UseClaude}, UseRag: {UseRag})...", request.UseClaude, request.UseRag);
+                    ragResponse = await _llmService.GetResponseAsync(promptWithContext, modelOverride, request.UseRag);
                 }
 
                 var responseText = RemoveSourcesSection(ragResponse.Response ?? string.Empty);

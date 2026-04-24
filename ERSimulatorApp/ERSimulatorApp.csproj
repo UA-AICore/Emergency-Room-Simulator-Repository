@@ -2,12 +2,16 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
+    <!-- Distro .NET on Ubuntu 24.04 defaults RID to ubuntu.24.04-x64; that host pack is not on
+         NuGet. Pin linux-x64 on Linux so restore/build (including systemd) succeeds. -->
+    <RuntimeIdentifier Condition="$([MSBuild]::IsOSPlatform('Linux'))">linux-x64</RuntimeIdentifier>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="8.0.10" />
+    <PackageReference Include="NLayer" Version="1.16.0" />
   </ItemGroup>
 
 </Project>

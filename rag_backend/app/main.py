@@ -42,9 +42,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "meta-llama/Llama-3.2-1B-instruct")
 
 # Local Ollama (only when USE_REMOTE_LLM=0 and model is not claude)
+# Defaults match fine-tuned MedGemma on serve.py:11435 (override with OLLAMA_URL / OLLAMA_MODEL / .env).
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11435")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "medgemma-ft")
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "300")) 
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "300"))
 
 # Claude (Anthropic) — key from .env.secrets (untracked) or env
 # Model ID for Claude Opus 4.6: claude-opus-4-6 (see https://docs.anthropic.com/en/docs/about-claude/models)

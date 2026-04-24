@@ -24,7 +24,7 @@ namespace ERSimulatorApp.Services
             _configuration = configuration;
         }
 
-        public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null)
+        public async Task<LLMResponse> GetResponseAsync(string prompt, string? modelOverride = null, bool useRag = true)
         {
             try
             {
@@ -35,12 +35,12 @@ namespace ERSimulatorApp.Services
                 if (!personalityEnabled)
                 {
                     _logger.LogInformation("Personality layer disabled, using raw RAG response");
-                    return await _ragService.GetResponseAsync(prompt, modelOverride);
+                    return await _ragService.GetResponseAsync(prompt, modelOverride, useRag);
                 }
 
                 // Get medical response from RAG + MedGemma
                 _logger.LogInformation($"Getting medical response from RAG for: {prompt.Substring(0, Math.Min(50, prompt.Length))}...");
-                var medicalResponse = await _ragService.GetResponseAsync(prompt, modelOverride);
+                var medicalResponse = await _ragService.GetResponseAsync(prompt, modelOverride, useRag);
 
                 if (medicalResponse.IsFallback)
                 {
@@ -78,7 +78,7 @@ namespace ERSimulatorApp.Services
                 // Fallback to basic response if personality fails
                 try
                 {
-                    return await _ragService.GetResponseAsync(prompt, modelOverride);
+                    return await _ragService.GetResponseAsync(prompt, modelOverride, useRag);
                 }
                 catch
                 {

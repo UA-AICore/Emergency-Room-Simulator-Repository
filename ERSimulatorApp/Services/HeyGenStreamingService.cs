@@ -37,21 +37,23 @@ namespace ERSimulatorApp.Services
         {
             _httpClient = httpClient;
             _logger = logger;
-            _apiKey = configuration["HeyGen:ApiKey"] ?? throw new InvalidOperationException("HeyGen:ApiKey is required");
+            _apiKey = configuration["HeyGen:ApiKey"]?.Trim() ?? string.Empty;
             _apiUrl = "https://api.heygen.com/v1/";
-            // Use AvatarId from config (stored as _avatarName for API compatibility)
-            _avatarName = configuration["HeyGen:AvatarId"] ?? throw new InvalidOperationException("HeyGen:AvatarId is required");
+            _avatarName = configuration["HeyGen:AvatarId"]?.Trim() ?? string.Empty;
 
-            if (string.IsNullOrWhiteSpace(_apiKey))
-            {
-                throw new InvalidOperationException("HeyGen API key is not configured");
-            }
-            if (string.IsNullOrWhiteSpace(_avatarName))
-            {
-                throw new InvalidOperationException("HeyGen Avatar ID is not configured");
-            }
+            _logger.LogInformation("HeyGen Streaming Service initialized with Avatar: {AvatarName}",
+                string.IsNullOrEmpty(_avatarName) ? "(not set)" : _avatarName);
+        }
 
-            _logger.LogInformation("HeyGen Streaming Service initialized with Avatar: {AvatarName}", _avatarName);
+        private static bool IsPlaceholder(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return true;
+            var v = value.Trim();
+            return v.StartsWith("PASTE_", StringComparison.OrdinalIgnoreCase)
+                || v.StartsWith("YOUR_", StringComparison.OrdinalIgnoreCase)
+                || v.StartsWith("your-", StringComparison.OrdinalIgnoreCase)
+                || v.Equals("PASTE_YOUR_HEYGEN_API_KEY", StringComparison.OrdinalIgnoreCase)
+                || v.Equals("PASTE_MEDICAL_INSTRUCTOR_AVATAR_ID", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -59,6 +61,13 @@ namespace ERSimulatorApp.Services
         /// </summary>
         public async Task<string> GetStreamingTokenAsync()
         {
+            if (IsPlaceholder(_apiKey) || IsPlaceholder(_avatarName))
+            {
+                _logger.LogWarning("HeyGen is not configured (placeholder or missing ApiKey/AvatarId). Set HeyGen:ApiKey and HeyGen:AvatarId in appsettings.");
+                throw new InvalidOperationException(
+                    "HeyGen is not configured. Set HeyGen:ApiKey and HeyGen:AvatarId in appsettings.json (or appsettings.Development.json). See LOCAL-GUIDE.md for setup.");
+            }
+
             try
             {
                 _logger.LogInformation("Getting HeyGen streaming token");
