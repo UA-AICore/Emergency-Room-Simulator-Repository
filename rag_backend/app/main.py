@@ -46,6 +46,9 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "meta-llama/Llama-3.2-1B-instruct")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11435")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "medgemma-ft")
 OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "300"))
+# RAG+conversation prompts to a local fine-tune server (e.g. 4B on GPU) can
+# OOM or exceed the tokenizer limit; we cap the context string before the LLM call.
+RAG_LOCAL_MAX_CONTEXT_CHARS = int(os.getenv("RAG_LOCAL_MAX_CONTEXT_CHARS", "20000"))
 
 # Claude (Anthropic) — key from .env.secrets (untracked) or env
 # Model ID for Claude Opus 4.6: claude-opus-4-6 (see https://docs.anthropic.com/en/docs/about-claude/models)
@@ -306,6 +309,18 @@ def _use_claude(model: Optional[str]) -> bool:
     return "claude" in model.lower()
 
 
+def _truncate_rag_context_for_local_llm(context_text: str) -> str:
+    """Shorter RAG context for medgemma-ft and similar; avoids OOM on long Chroma+prompt bundles."""
+    if len(context_text) <= RAG_LOCAL_MAX_CONTEXT_CHARS:
+        return context_text
+    _rag_log.warning(
+        "Truncating RAG context for local LLM: %d chars -> %d (RAG_LOCAL_MAX_CONTEXT_CHARS).",
+        len(context_text),
+        RAG_LOCAL_MAX_CONTEXT_CHARS,
+    )
+    return (context_text[: RAG_LOCAL_MAX_CONTEXT_CHARS - 1].rstrip() + "…")
+
+
 def _is_not_found_in_context(answer: str) -> bool:
     """True if the RAG answer indicates the topic was not in the indexed materials.
     Detects English and Spanish (and similar) 'not in context' phrasing so Claude fallback runs."""
@@ -538,6 +553,8 @@ def _rag_answer(
         previews.append(f"- {label} {d[:700]}")
 
     context_text = "\n".join(previews)
+    if not _use_claude(model) and not USE_REMOTE_LLM:
+        context_text = _truncate_rag_context_for_local_llm(context_text)
     has_conversation = prompt_for_llm is not None and len((prompt_for_llm or "").strip()) > 0
     system_prompt = (
         "You are an ER attending talking to a resident or student—a real person they can talk to, not a generic AI. Use ONLY the context below to answer. Speak directly to them, as if you're in the room.\n"
@@ -575,8 +592,14 @@ def _rag_answer(
                 {"role": "user", "content": user_content},
             ]
             answer = call_local_ollama(messages)
-    except Exception as e:
-        logging.warning("RAG LLM call failed: %s", e)
+    except Exception:
+        # Typical causes: medgemma-ft on OLLAMA_URL down, timeout, or GPU OOM on huge prompts.
+        logging.exception(
+            "RAG LLM call failed; check fine-tune server at OLLAMA_URL (reachable from the RAG process) "
+            "and consider lowering RAG top_k or RAG_LOCAL_MAX_CONTEXT_CHARS. OLLAMA_URL=%r OLLAMA_MODEL=%r",
+            OLLAMA_URL,
+            OLLAMA_MODEL,
+        )
         # Still return previews so the UI can show "references" even when the LLM step failed
         return (
             "I couldn't look that up in my references right now. Please try again in a moment.",
