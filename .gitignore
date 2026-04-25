@@ -92,6 +92,8 @@ deploy/**
 !deploy/scripts/
 !deploy/scripts/start-rag-for-systemd.sh
 !deploy/scripts/start-app-for-systemd.sh
+!deploy/caddy/
+!deploy/caddy/Caddyfile.example
 
 # ===== Local / machine-specific docs =====
 ERSimulatorApp/RAG-CONNECTIVITY.md

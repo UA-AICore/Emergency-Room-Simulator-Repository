@@ -2,9 +2,14 @@
 # Start RAG backend, run ingest, then start the .NET app in one terminal.
 #
 # Interactive (foreground; stops when you Ctrl+C or close the terminal):
-#   ./start-app.sh [Server|ServerHttps]
-#   Server        = HTTP only (http://YOUR_IP:8081), no voice input
+#   ./start-app.sh [Server|ServerHttps|ServerCaddy]
+#   Server        = HTTP on 0.0.0.0:8081, no voice input
 #   ServerHttps   = HTTPS (https://YOUR_IP:8443), voice input works (default)
+#   ServerCaddy   = HTTP on 127.0.0.1:8081 only — use with Caddy (Let's Encrypt) in front; see deploy/caddy/
+#
+# If a previous ERSimulatorApp is still on 8081/8443 (another terminal, detached run), start
+# will fail to bind. Either stop that process (Ctrl+C), or re-run with:
+#   CODIRA_STOP_EXISTING_APP=1 ./start-app.sh ServerHttps
 #
 # Perpetual (Linux systemd — survives SSH disconnect & restarts on crash):
 #   ./start-app.sh systemd-install [Server|ServerHttps]   # writes units to /tmp, prints sudo cp + enable
@@ -28,8 +33,8 @@ codira_service_user() {
 
 codira_systemd_install() {
   local profile="${1:-ServerHttps}"
-  if [ "$profile" != "Server" ] && [ "$profile" != "ServerHttps" ]; then
-    echo "Invalid launch profile: $profile (use Server or ServerHttps)" >&2
+  if [ "$profile" != "Server" ] && [ "$profile" != "ServerHttps" ] && [ "$profile" != "ServerCaddy" ]; then
+    echo "Invalid launch profile: $profile (use Server, ServerHttps, or ServerCaddy)" >&2
     exit 1
   fi
   local svc_user
@@ -228,10 +233,80 @@ else
   curl -s -X POST http://127.0.0.1:8010/ingest -H "Content-Type: application/json" -d '{"folder": "data/trauma_pdfs"}' || true
 fi
 echo ""
+
+# Fail fast if Kestrel ports are already in use (e.g. another ./start-app.sh or systemd)
+codira_listeners_on() {
+  local p="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -t -iTCP:"$p" -sTCP:LISTEN 2>/dev/null
+    return
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -tlnp 2>/dev/null | grep -E "[.:]${p}[[:space:]]" | sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' | head -1
+  fi
+}
+
+codira_looks_like_ersim() {
+  local p="$1"
+  [ -z "$p" ] && return 1
+  if ps -p "$p" -o comm= 2>/dev/null | grep -qiE '^ERSimulatorApp$'; then
+    return 0
+  fi
+  if ps -p "$p" -o args= 2>/dev/null | grep -qiE 'ERSimulatorApp\.dll'; then
+    return 0
+  fi
+  return 1
+}
+
+if [ "$PROFILE" = "Server" ] || [ "$PROFILE" = "ServerCaddy" ]; then
+  CHECK_PORTS="8081"
+else
+  CHECK_PORTS="8081 8443"
+fi
+PIDS_IN_USE=$(for p in $CHECK_PORTS; do codira_listeners_on "$p" || true; done | sort -u | tr '\n' ' ')
+# trim
+PIDS_IN_USE=$(echo "$PIDS_IN_USE" | xargs 2>/dev/null || true)
+if [ -n "$PIDS_IN_USE" ]; then
+  for pid in $PIDS_IN_USE; do
+    if codira_looks_like_ersim "$pid"; then
+      if [ "${CODIRA_STOP_EXISTING_APP:-0}" = "1" ]; then
+        echo "CODIRA_STOP_EXISTING_APP=1: stopping ERSimulatorApp (PID $pid) so this run can bind..."
+        kill "$pid" 2>/dev/null || true
+        sleep 1
+      else
+        echo "The web app is already running (PID $pid) on 8081/8443, so a second copy cannot bind the same ports." >&2
+        if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet codira-app 2>/dev/null; then
+          echo "The codira-app systemd service is active. Use your usual URL (https://<host>:8443) or restart the service, not a second start-app:" >&2
+          echo "  $0 systemd-restart" >&2
+        else
+          echo "Use the app at https://<this-host>:8443, stop the other run (Ctrl+C in its terminal), or restart with:" >&2
+          echo "  CODIRA_STOP_EXISTING_APP=1 $0 $PROFILE" >&2
+        fi
+        exit 1
+      fi
+    else
+      echo "Port 8081 or 8443 is in use by another program (not ERSimulatorApp, PID $pid). Free the port, then re-run." >&2
+      ps -p "$pid" -o pid,args= 2>/dev/null | sed "s/^/  /" >&2 || true
+      exit 1
+    fi
+  done
+fi
+# re-check (after soft kill) so a stale or foreign listener still errors clearly
+PIDS_IN_USE2=$(for p in $CHECK_PORTS; do codira_listeners_on "$p" || true; done | sort -u | xargs 2>/dev/null || true)
+if [ -n "$PIDS_IN_USE2" ]; then
+  echo "Ports 8081/8443 are still in use. Stop the other process, then re-run. PIDs: $PIDS_IN_USE2" >&2
+  lsof -i :8081 -i :8443 2>/dev/null | head -20 >&2 || true
+  exit 1
+fi
+
 if [ "$PROFILE" = "ServerHttps" ]; then
   echo "Starting .NET app as HTTPS site (profile: ServerHttps)..."
   echo "  → https://YOUR_IP:8443 (voice input works)"
   echo "  → http://YOUR_IP:8081 (redirects to HTTPS if cert is configured)"
+elif [ "$PROFILE" = "ServerCaddy" ]; then
+  echo "Starting .NET app for Caddy reverse proxy (profile: ServerCaddy)..."
+  echo "  → Kestrel: http://127.0.0.1:8081 (not exposed on its own; Caddy serves https:// on 443)"
+  echo "  See deploy/caddy/Caddyfile.example — set CODIRA_LAUNCH_PROFILE=ServerCaddy in systemd for production."
 else
   echo "Starting .NET app (profile: $PROFILE)..."
   echo "  → http://YOUR_IP:8081 (HTTP only, no voice input)"

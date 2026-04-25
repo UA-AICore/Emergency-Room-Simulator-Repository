@@ -260,6 +260,7 @@ Most settings are controlled by **environment variables**, which mirror the sect
 
 - `ASPNETCORE_URLS` – e.g., `http://+:8080`.
 - `ASPNETCORE_PATHBASE` – optional path prefix when hosting behind a reverse proxy.
+- Kestrel HTTPS: `Kestrel__Certificates__Default__Path`, `Kestrel__Certificates__Default__Password` (or the `Kestrel` section in `appsettings.json`, as in `appsettings.Example.json`).
 
 There is also an `ENV_VARS_QUICK_REFERENCE.txt` file plus a `set-env-vars.sh` script in `ERSimulatorApp/` that help you quickly set all these variables.
 
@@ -288,3 +289,13 @@ cd "ER Simulator Web App/ERSimulatorApp"
 
 dotnet restore
 ASPNETCORE_URLS=http://localhost:8080 dotnet run
+```
+
+### 5.3 HTTPS and perpetual (systemd) mode
+
+If you use **`./start-app.sh systemd-install`** and **`./start-app.sh systemd-restart`**, the app runs in the background with profile **`ServerHttps`**: it listens on **https://YOUR_IP:8443** (and HTTP on 8081). **Port 8443 is expected to stay in use** for that one service—do not also run interactive `./start-app.sh` on the same host; use the site in the browser, or run **`./start-app.sh systemd-restart`** to reload after code or cert changes.
+
+For TLS, keep **`ERSimulatorApp/certs/server.pfx`**, copy the **`Kestrel`** block from `appsettings.Example.json` into the server’s `appsettings.json`, and use `scripts/generate-https-dev-cert.sh` on the server if the PFX is missing. The systemd helper `scripts/perpetual-app.sh` will exit before startup if `ServerHttps` is chosen but the PFX is not present.
+
+**Caddy + public DNS (e.g. JetStream with a hostname) — “green lock” (Let’s Encrypt).**  
+Install [Caddy](https://caddyserver.com/docs/install) on the same VM, open **80/443** in the security group, and point a **real DNS name** (not a bare public IP) at the VM. Run Kestrel with the **`ServerCaddy`** profile (`http://127.0.0.1:8081` only) so the app is not double-serving TLS. For systemd, set e.g. `Environment=CODIRA_LAUNCH_PROFILE=ServerCaddy` in `codira-app` and install a Caddyfile based on **`deploy/caddy/Caddyfile.example`**. Caddy auto-provisions and renews certificates; no `certs/server.pfx` in Kestrel in this mode.
