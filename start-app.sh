@@ -12,7 +12,7 @@
 #   CODIRA_STOP_EXISTING_APP=1 ./start-app.sh ServerHttps
 #
 # Perpetual (Linux systemd — survives SSH disconnect & restarts on crash):
-#   ./start-app.sh systemd-install [Server|ServerHttps]   # writes units to /tmp, prints sudo cp + enable
+#   ./start-app.sh systemd-install [Server|ServerHttps|ServerCaddy]   # writes units to /tmp, prints sudo cp + enable
 #   ./start-app.sh systemd-restart                        # after code changes
 #   ./start-app.sh perpetual                              # alias: restart + status
 #   ./start-app.sh systemd-status | systemd-stop | systemd-logs

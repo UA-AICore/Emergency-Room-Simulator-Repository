@@ -281,9 +281,37 @@
     const API_BASE = '/api/avatar/v2/streaming';
     const KEEPALIVE_INTERVAL_MS = 30000; // HeyGen sessions can close when idle; ping every 30s to reduce "Connection lost"
     const mql = window.matchMedia('(min-width: 992px)');
+    /** Tracks layout before breakpoint changes so desktop/mobile duplicate radios stay in sync. */
+    let previousLayoutWasDesktop = mql.matches;
 
     function isDesktop() {
         return mql.matches;
+    }
+
+    /**
+     * Desktop and mobile each have separate Claude/Local and Ref On/Off radios (different DOM trees).
+     * When resizing across 992px, copy from the previously visible group so Local keeps working.
+     */
+    function syncAnswerEngineRadiosFromLayout(sourceWasDesktop) {
+        var srcClaude = document.getElementById(sourceWasDesktop ? 'avatarLlmClaude' : 'avatarLlmClaudeM');
+        var srcLocal = document.getElementById(sourceWasDesktop ? 'avatarLlmLocal' : 'avatarLlmLocalM');
+        var dstClaude = document.getElementById(sourceWasDesktop ? 'avatarLlmClaudeM' : 'avatarLlmClaude');
+        var dstLocal = document.getElementById(sourceWasDesktop ? 'avatarLlmLocalM' : 'avatarLlmLocal');
+        if (!srcClaude || !dstClaude || !srcLocal || !dstLocal) return;
+        var useClaude = srcClaude.checked;
+        dstClaude.checked = useClaude;
+        dstLocal.checked = !useClaude;
+
+        var srcRefOn = document.getElementById(sourceWasDesktop ? 'avatarRefOn' : 'avatarRefOnM');
+        var srcRefOff = document.getElementById(sourceWasDesktop ? 'avatarRefOff' : 'avatarRefOffM');
+        var dstRefOn = document.getElementById(sourceWasDesktop ? 'avatarRefOnM' : 'avatarRefOn');
+        var dstRefOff = document.getElementById(sourceWasDesktop ? 'avatarRefOffM' : 'avatarRefOff');
+        if (!srcRefOn || !srcRefOff || !dstRefOn || !dstRefOff) return;
+        if (srcRefOff.checked) {
+            dstRefOff.checked = true;
+        } else {
+            dstRefOn.checked = true;
+        }
     }
 
     function getAvatarUseClaude() {
@@ -454,7 +482,11 @@
     }
 
     refreshElements();
-    mql.addEventListener('change', function() { refreshElements(); });
+    mql.addEventListener('change', function() {
+        syncAnswerEngineRadiosFromLayout(previousLayoutWasDesktop);
+        previousLayoutWasDesktop = mql.matches;
+        refreshElements();
+    });
 
     function startCallTimer() {
         stopCallTimer();

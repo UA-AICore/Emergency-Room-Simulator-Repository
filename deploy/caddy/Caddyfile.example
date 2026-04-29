@@ -1,8 +1,9 @@
 # Copy to /etc/caddy/Caddyfile (or run: caddy run --config /path/to/Caddyfile) after installing Caddy.
 # Prerequisites:
-#  - DNS A/AAAA record: your FQDN → this VM (JetStream floating IP)
-#  - Security group: allow inbound TCP 80 and 443
+#  - DNS A/AAAA record: your FQDN → this VM (JetStream floating IP). Let's Encrypt will NOT issue for raw IP-only URLs.
+#  - Security group / firewall: allow inbound TCP 80 (HTTP-01 challenge + redirect) and 443
 #  - Kestrel profile ServerCaddy: only http://127.0.0.1:8081 (set CODIRA_LAUNCH_PROFILE=ServerCaddy in systemd)
+#    ./start-app.sh systemd-install ServerCaddy
 #
 # Replace the host line with your real domain, and set a real email (Let's Encrypt account / expiry notices).
 {
@@ -11,8 +12,13 @@
 
 your-app.example.edu {
 	encode zstd gzip
+	# WebSockets (HeyGen / LiveKit signaling from the browser) work with default reverse_proxy.
 	reverse_proxy 127.0.0.1:8081
 }
 
 # Caddy issues and renews certificates automatically. Users hit https://your-app.example.edu — no PFX in Kestrel.
-# The app already uses X-Forwarded-For / X-Forwarded-Proto (Program.cs) for this reverse-proxy case.
+# Program.cs uses forwarded headers (X-Forwarded-For / X-Forwarded-Proto) behind this proxy.
+#
+# Verify after deploy:
+#   curl -sI https://your-app.example.edu/Avatar | head
+#   sudo journalctl -u caddy -f

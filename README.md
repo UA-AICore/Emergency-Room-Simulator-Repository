@@ -299,3 +299,15 @@ For TLS, keep **`ERSimulatorApp/certs/server.pfx`**, copy the **`Kestrel`** bloc
 
 **Caddy + public DNS (e.g. JetStream with a hostname) — “green lock” (Let’s Encrypt).**  
 Install [Caddy](https://caddyserver.com/docs/install) on the same VM, open **80/443** in the security group, and point a **real DNS name** (not a bare public IP) at the VM. Run Kestrel with the **`ServerCaddy`** profile (`http://127.0.0.1:8081` only) so the app is not double-serving TLS. For systemd, set e.g. `Environment=CODIRA_LAUNCH_PROFILE=ServerCaddy` in `codira-app` and install a Caddyfile based on **`deploy/caddy/Caddyfile.example`**. Caddy auto-provisions and renews certificates; no `certs/server.pfx` in Kestrel in this mode.
+
+**Checklist (trusted cert via Caddy):**
+
+1. Create **DNS A** (or AAAA) record: `your-app.institution.edu` → VM public/floating IP (wait for propagation: `dig +short your-app.institution.edu`).
+2. **Security group / `ufw`:** allow **TCP 80** and **443** to this VM (not only 8443).
+3. Install Caddy; copy **`deploy/caddy/Caddyfile.example`** → `/etc/caddy/Caddyfile`, replace host + `email`, validate: `sudo caddy validate --config /etc/caddy/Caddyfile`.
+4. Install/restart app systemd with **`ServerCaddy`:** `./start-app.sh systemd-install ServerCaddy` (follow printed `sudo cp` / `enable` steps).
+5. **Stop binding 8443** on Kestrel in production when using Caddy — only **`ServerCaddy`** should run (no second process with **ServerHttps** on the same box).
+6. `sudo systemctl enable --now caddy` (or your distro’s equivalent); check `sudo journalctl -u caddy -e` for ACME success.
+7. Smoke test: `curl -sI https://your-app.institution.edu/Avatar` → HTTP/2 200; browser shows padlock without importing a self-signed cert.
+
+**Sanity script:** `./scripts/verify-https-setup.sh` (PFX expiry if you use **ServerHttps**; reminders for Caddy mode).
